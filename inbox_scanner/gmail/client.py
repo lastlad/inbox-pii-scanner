@@ -11,6 +11,7 @@ module level so they can be unit-tested without a real Gmail connection.
 
 from __future__ import annotations
 
+import base64
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any, Iterator
@@ -65,6 +66,24 @@ class GmailClient:
             if not page_token:
                 return
 
+    def download_attachment(self, message_id: str, attachment_id: str) -> bytes:
+        """Fetch raw bytes of one attachment.
+
+        Quota cost is 5 units. The response carries the bytes as
+        base64url-encoded data; we decode here so callers see plain
+        ``bytes`` and can hash/store them directly.
+        """
+        resp = (
+            self._service.users()
+            .messages()
+            .attachments()
+            .get(userId="me", messageId=message_id, id=attachment_id)
+            .execute()
+        )
+        data = resp.get("data") or ""
+        # Gmail uses URL-safe base64 (the standard variant doesn't fit URLs).
+        return base64.urlsafe_b64decode(data)
+
     def get_message(self, message_id: str) -> dict[str, Any]:
         """Fetch a message with the full MIME tree.
 
@@ -87,6 +106,23 @@ class GmailClient:
             .get(userId="me", id=message_id, format="full")
             .execute()
         )
+
+
+def make_composite_attachment_id(message_id: str, part_id: str) -> str:
+    """Build the DB primary key for an attachment.
+
+    Composite of ``(message_id, part_id)``. ``part_id`` is the Gmail MIME
+    part identifier (e.g. ``"1"``, ``"0.2"``) — per the Gmail API docs it
+    is the **immutable** ID of the part, so the same logical attachment
+    always maps to the same composite ID across sync runs.
+
+    Why not the Gmail ``attachment_id``? It expires after a few hours, so
+    keying by it would produce duplicate rows on every re-sync that fell
+    outside that window. We persist the live ``attachment_id`` in
+    ``Attachment.gmail_attachment_id`` and refresh it on each metadata
+    fetch instead.
+    """
+    return f"{message_id}:{part_id}"
 
 
 # ---------- pure helpers (no I/O — unit-testable) ----------

@@ -69,8 +69,14 @@ class Message(Base):
 class Attachment(Base):
     __tablename__ = "attachments"
 
-    id: Mapped[str] = mapped_column(String, primary_key=True)  # gmail attachment id or composite
+    # Composite of (message_id, part_id). part_id is Gmail's *stable* MIME
+    # part identifier; gmail_attachment_id below is the volatile handle used
+    # for the actual download call and gets refreshed on every metadata
+    # fetch.
+    id: Mapped[str] = mapped_column(String, primary_key=True)
     message_id: Mapped[str] = mapped_column(String, ForeignKey("messages.id"))
+    part_id: Mapped[str | None] = mapped_column(String(64))
+    gmail_attachment_id: Mapped[str | None] = mapped_column(Text)
     filename: Mapped[str | None] = mapped_column(Text)
     mime_type: Mapped[str | None] = mapped_column(String(255))
     size_bytes: Mapped[int | None] = mapped_column(Integer)

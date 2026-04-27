@@ -2,11 +2,22 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+from contextlib import contextmanager
 from datetime import date
-from typing import Annotated, Optional
+from typing import Annotated, Iterator, Optional
 
 import typer
 from rich.console import Console
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
 from rich.table import Table
 from sqlalchemy import func, select
 
@@ -88,9 +99,38 @@ def sync(
 
     engine = make_engine(settings.db_path)
     session_factory = make_session_factory(engine)
+
+    progress = Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TextColumn("•"),
+        TimeElapsedColumn(),
+        TextColumn("•"),
+        TimeRemainingColumn(),
+        console=console,
+        transient=False,
+    )
+    task_id = progress.add_task("Syncing", total=None)
+
+    def _on_total_known(total: int) -> None:
+        progress.update(task_id, total=total)
+
+    def _on_message_done(_message_id: str) -> None:
+        progress.advance(task_id)
+
     try:
-        with session_scope(session_factory) as session:
-            sync_id = run_sync(settings, session, limit=limit, since=since)
+        with _quiet_console_logging(), progress:
+            sync_id = asyncio.run(
+                run_sync(
+                    settings,
+                    session_factory,
+                    limit=limit,
+                    since=since,
+                    on_total_known=_on_total_known,
+                    on_message_done=_on_message_done,
+                )
+            )
     except CredentialsMissing as e:
         console.print(f"[red]{e}[/red]")
         raise typer.Exit(1) from None
@@ -254,3 +294,24 @@ def _not_implemented(name: str) -> int:
         "See docs/IMPLEMENTATION_PLAN.md for build status."
     )
     return 1
+
+
+@contextmanager
+def _quiet_console_logging() -> Iterator[None]:
+    """Lift the stderr StreamHandler to WARNING for the duration.
+
+    Used during ``sync`` so the rich progress bar isn't fighting per-message
+    INFO log lines. The file handler keeps logging at full INFO — every
+    sync event is still in ``logs/sync.log``.
+    """
+    root = logging.getLogger()
+    saved: list[tuple[logging.Handler, int]] = []
+    for h in root.handlers:
+        if isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler):
+            saved.append((h, h.level))
+            h.setLevel(logging.WARNING)
+    try:
+        yield
+    finally:
+        for h, level in saved:
+            h.setLevel(level)
