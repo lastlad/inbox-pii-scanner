@@ -1,0 +1,25 @@
+# Python / packaging
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Tooling
+.python-version
+.DS_Store
+
+# Never commit dotenv files. The project does not use .env at all — all
+# config lives in <data_dir>/config.yaml or real environment variables.
+# Ignored defensively so nobody accidentally checks one in.
+.env
+.env.*
+
+# Repo-local runtime data dir — contains real attachment bytes, extracted
+# text, and PII spans. Auto-created by load_settings() when running from a
+# source checkout (see inbox_scanner/config.py::default_data_dir).
+.inbox-scanner-data/
