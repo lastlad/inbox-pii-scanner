@@ -27,7 +27,8 @@ from inbox_scanner.gmail.auth import CredentialsMissing, run_oauth_flow
 from inbox_scanner.gmail.sync import run_sync
 from inbox_scanner.logging import configure_logging, get_logger
 from inbox_scanner.migrations import apply_migrations
-from inbox_scanner.models import Attachment, Message, Sync
+from inbox_scanner.models import Attachment, Message, Scan, Sync
+from inbox_scanner.pipelines.scan_pipeline import run_scan
 
 app = typer.Typer(
     help="Local-first, read-only Gmail PII scanner.",
@@ -158,10 +159,15 @@ def scan(
         typer.Option("--only-detect", help="Run detection only; skip extraction."),
     ] = False,
 ) -> None:
-    """Phase 2: extract + detect on locally cached attachments. No Gmail access."""
+    """Phase 2: extract + detect on locally cached attachments. No Gmail access.
+
+    Step-4 scope: extraction only. Born-digital documents go through Docling;
+    images and scanned PDFs are deferred to step 5's VLM. Detection arrives
+    in step 6.
+    """
     if only_extract and only_detect:
         raise typer.BadParameter("--only-extract and --only-detect are mutually exclusive.")
-    _bootstrap("scanner")
+    settings = _bootstrap("scanner")
     log = get_logger("cli.scan")
     log.info(
         "scan.invoked",
@@ -169,7 +175,45 @@ def scan(
         only_extract=only_extract,
         only_detect=only_detect,
     )
-    raise typer.Exit(_not_implemented("scan"))
+
+    engine = make_engine(settings.db_path)
+    session_factory = make_session_factory(engine)
+
+    progress = Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TextColumn("•"),
+        TimeElapsedColumn(),
+        TextColumn("•"),
+        TimeRemainingColumn(),
+        console=console,
+        transient=False,
+    )
+    task_id = progress.add_task("Extracting", total=None)
+
+    def _on_total_known(total: int) -> None:
+        progress.update(task_id, total=total)
+
+    def _on_attachment_done(_attachment_id: str) -> None:
+        progress.advance(task_id)
+
+    with _quiet_console_logging(), progress:
+        scan_id = asyncio.run(
+            run_scan(
+                settings,
+                session_factory,
+                force_extract=force_extract,
+                only_extract=only_extract,
+                only_detect=only_detect,
+                on_total_known=_on_total_known,
+                on_attachment_done=_on_attachment_done,
+            )
+        )
+
+    console.print(
+        f"[green]Scan {scan_id} complete.[/green] Run `inbox-scanner status` for details."
+    )
 
 
 @app.command()
@@ -197,6 +241,9 @@ def status() -> None:
         last_sync = session.execute(
             select(Sync).order_by(Sync.started_at.desc()).limit(1)
         ).scalar_one_or_none()
+        last_scan = session.execute(
+            select(Scan).order_by(Scan.started_at.desc()).limit(1)
+        ).scalar_one_or_none()
 
         msg_total = session.scalar(select(func.count()).select_from(Message)) or 0
         msg_synced = session.scalar(
@@ -219,6 +266,29 @@ def status() -> None:
         att_skipped = session.scalar(
             select(func.count()).select_from(Attachment).where(
                 Attachment.sync_status.in_(("skipped_filter", "skipped_too_large"))
+            )
+        ) or 0
+
+        ext_extracted = session.scalar(
+            select(func.count()).select_from(Attachment).where(
+                Attachment.extraction_status == "extracted"
+            )
+        ) or 0
+        ext_pending = session.scalar(
+            select(func.count()).select_from(Attachment).where(
+                Attachment.sync_status == "downloaded",
+                Attachment.extraction_status == "pending",
+            )
+        ) or 0
+        ext_unparseable = session.scalar(
+            select(func.count()).select_from(Attachment).where(
+                Attachment.extraction_status == "unparseable"
+            )
+        ) or 0
+        ext_unscanned = session.scalar(
+            select(func.count()).select_from(Attachment).where(
+                Attachment.sync_status == "downloaded",
+                Attachment.extraction_status.is_(None),
             )
         ) or 0
 
@@ -259,6 +329,28 @@ def status() -> None:
     att_table.add_row("skipped", str(att_skipped))
     att_table.add_row("[bold]total[/bold]", f"[bold]{att_total}[/bold]")
     console.print(att_table)
+
+    if last_scan is not None:
+        scan_table = Table(title="Last scan", show_header=False, box=None)
+        scan_table.add_column("k", style="bold")
+        scan_table.add_column("v")
+        scan_table.add_row("id", str(last_scan.id))
+        scan_table.add_row("status", last_scan.status)
+        scan_table.add_row("started", str(last_scan.started_at))
+        scan_table.add_row("finished", str(last_scan.finished_at))
+        scan_table.add_row("attachments processed", str(last_scan.processed_attachments))
+        if last_scan.error:
+            scan_table.add_row("error", last_scan.error)
+        console.print(scan_table)
+
+    ext_table = Table(title="Extraction (downloaded attachments only)", show_header=True)
+    ext_table.add_column("status")
+    ext_table.add_column("count", justify="right")
+    ext_table.add_row("extracted", str(ext_extracted))
+    ext_table.add_row("pending (qwen-vl in step 5)", str(ext_pending))
+    ext_table.add_row("unparseable", str(ext_unparseable))
+    ext_table.add_row("not yet scanned", str(ext_unscanned))
+    console.print(ext_table)
 
 
 # ---------- reset (still stubbed) ----------
