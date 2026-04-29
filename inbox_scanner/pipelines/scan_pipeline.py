@@ -1,19 +1,15 @@
 """Phase 2 scan pipeline.
 
-Step 4 scope: **extract stage only**. Iterates downloaded attachments,
-routes each to docling / qwen-vl / unparseable, runs the appropriate
-extractor (currently only docling), writes extracted markdown to
+Currently scopes the **extract stage**. Iterates downloaded attachments,
+routes each via :func:`inbox_scanner.extraction.router.route` (Docling vs.
+unparseable), runs Docling on supported mimes (PDFs born-digital or
+scanned, Office docs, PNG/JPEG/TIFF/BMP/WEBP images), writes the result to
 ``<data_dir>/extracted/<content_hash>.md``, and updates the
 ``Attachment.extraction_*`` columns.
 
-* The qwen-vl route is left at ``extraction_status='pending'`` — step 5
-  wires up the VLM and picks those up.
-* The unparseable route gets ``extraction_status='unparseable'`` with a
-  short reason.
-* Extraction is keyed by ``content_hash`` — two attachments with identical
-  bytes share one cached ``.md`` file and one extraction call.
-
-The detect stage lands in step 6.
+Extraction is keyed by ``content_hash`` — two attachments with identical
+bytes share one cached ``.md`` file and one extraction call. The detect
+stage lands next.
 """
 
 from __future__ import annotations
@@ -226,26 +222,7 @@ def _process_one(
         log.warning("extract.blob_missing", attachment_id=attachment_id)
         return EXT_UNPARSEABLE
 
-    chosen_route = route_attachment(mime_type, content)
-
-    if chosen_route == "qwen-vl":
-        # Step 5 wires this route up — leave the row pending so the next
-        # scan run picks it up automatically.
-        _record_extraction(
-            session_factory,
-            attachment_id=attachment_id,
-            scan_id=scan_id,
-            route="qwen-vl",
-            status=EXT_PENDING,
-            extracted_text_path=None,
-            error=None,
-        )
-        log.info(
-            "extract.deferred_to_vlm",
-            attachment_id=attachment_id,
-            mime=mime_type,
-        )
-        return EXT_PENDING
+    chosen_route = route_attachment(mime_type)
 
     if chosen_route == "unparseable":
         _record_extraction(

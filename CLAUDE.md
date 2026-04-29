@@ -46,7 +46,7 @@ Target environment: macOS on Apple Silicon, single user, Python 3.11+, `uv` for 
 This is the single most important design decision and it shapes every module. Do not collapse the phases.
 
 1. **Sync (`inbox-scanner sync`)** — network-bound, Gmail API, idempotent on re-run. Downloads message metadata and raw attachment bytes into content-addressed blob storage. Run once; expensive.
-2. **Scan (`inbox-scanner scan`)** — fully offline. Runs extraction (Docling for born-digital, Qwen2.5-VL via local `llama-server` for scans/images) and detection (Presidio + OpenAI Privacy Filter + custom regex) against the local cache. Re-runnable any number of times with different thresholds/detectors without touching Gmail.
+2. **Scan (`inbox-scanner scan`)** — fully offline. Runs extraction (Docling 2.x for everything: PDFs born-digital + scanned, Office docs, supported images — see "Single extraction backend" below) and detection (Presidio + OpenAI Privacy Filter + custom regex) against the local cache. Re-runnable any number of times with different thresholds/detectors without touching Gmail.
 
 Within scan, extraction and detection are separately runnable (`--only-extract`, `--only-detect`) because extraction (especially VLM) is the expensive step and you want to iterate on detectors without paying it again.
 
@@ -56,9 +56,9 @@ The DB schema mirrors this split: `syncs` and `scans` are separate run tables; `
 
 - **Read-only Gmail scope only** (`gmail.readonly`). Never request or use a write scope. Each user supplies their own OAuth client; we don't run a verified app.
 - **Localhost only.** FastAPI binds `127.0.0.1`. No auth, no remote access, warn loudly if the user overrides the host.
-- **Content-addressed blob storage.** Attachments live at `~/.inbox-scanner/attachments/blobs/<sha[:2]>/<sha[2:4]>/<sha>`. Two messages with identical attachments share a blob. Multiple `attachments` rows can point to the same `content_hash`; cache extraction keyed on hash. Deletion of a single attachment is therefore not safe — out of scope for v1.
-- **Gmail rate limit:** token-bucket at 20 req/sec global, exp backoff with jitter on 429/503. 4 worker tasks max.
-- **VLM concurrency cap:** max 2 concurrent calls to `llama-server` (a 7B model on a single Apple Silicon box can't sustain more). Configurable, but don't raise the default.
+- **Content-addressed blob storage.** Attachments live at `<data_dir>/attachments/blobs/<sha[:2]>/<sha[2:4]>/<sha>`. Two messages with identical attachments share a blob. Multiple `attachments` rows can point to the same `content_hash`; cache extraction keyed on hash. Deletion of a single attachment is therefore not safe — out of scope for v1.
+- **Gmail rate limit:** token-bucket at 20 req/sec global, exp backoff with jitter on 429/503. 4 worker tasks max. Gmail attachment IDs expire — primary key is `(message_id, part_id)`, never `(message_id, attachment_id)`.
+- **Single extraction backend (Docling 2.x).** The original plan called for a Docling + Qwen-VL split via `llama-server`; we collapsed to Docling-only after testing showed its built-in OCR (via `OcrAutoOptions` → EasyOCR / Apple Vision / RapidOCR) handles every category we care about and produces literal text more useful for PII detection than a VLM's narrative. **Don't reintroduce a separate VLM backend.** If quality on a specific class of attachment becomes a problem, opt into Docling's own `do_picture_description=True` (loads SmolVLM in-process) before reaching for a second HTTP service.
 - **Sync skip filters happen pre-download** (mime denylist, <1KB, >50MB, inline `Content-ID` images) — the goal is to avoid pulling bytes we'll never use.
 - **Data dir holds plaintext PII** (raw attachments, extracted text, PII spans in SQLite). README must call this out and recommend FileVault. No SQLCipher in v1.
 
@@ -71,7 +71,8 @@ No write access to Gmail, no daemon/incremental mode, no email-body scanning, no
 Defined in plan §"Module structure". Key boundaries:
 
 - `gmail/` — only touched in Phase 1. Once sync is done, nothing else imports from it.
-- `extraction/router.py` — single decision point for docling vs qwen-vl vs unparseable, based on mime + (for PDFs) text-layer sniff via `pypdfium2`.
+- `extraction/router.py` — single mime-allowlist decision point: Docling or `unparseable`. PDFs are not pre-classified; Docling auto-OCRs scanned ones via `do_ocr=True`.
+- `extraction/docling_extractor.py` — singleton `DocumentConverter`, `DocumentStream(name=, stream=BytesIO)` API, returns markdown via `result.document.export_to_markdown()`.
 - `detection/categorizer.py` — maps raw detector labels (Presidio + Privacy Filter + custom regex) to user-facing categories (`gov_id`, `financial`, `tax`, `medical`, `credentials`, `legal`, `other_pii`). A message flags only on the first six; `other_pii` alone is informational.
 - `pipelines/sync_pipeline.py` and `pipelines/scan_pipeline.py` — orchestrators, one per phase, share DB/blob/config infra but are otherwise independent.
 
@@ -90,16 +91,16 @@ inbox-scanner reset [--keep-token|--keep-attachments|--keep-extractions]
 
 ## External services the user runs themselves
 
-- **`llama-server`** with Qwen2.5-VL-7B-Instruct GGUF + `--mmproj` for vision. Default endpoint `http://127.0.0.1:8080/v1` (OpenAI-compatible). The scanner is an HTTP client; it does not start or manage llama-server.
-- **Google Cloud OAuth client** — user creates the project, enables Gmail API, drops `credentials.json` into `~/.inbox-scanner/`.
+- **Google Cloud OAuth client** — user creates the project, enables Gmail API, drops `credentials.json` into the data dir. If missing, `inbox-scanner auth` prints exactly what to do; don't let stack traces surface.
 
-If either is missing, fail with a clear actionable error pointing to the README, not a stack trace.
+That's the only external dependency now. (Earlier plan had a `llama-server` requirement; removed when we collapsed to Docling-only extraction.)
 
 ## Gotchas worth remembering
 
 - `messages.list?q=has:attachment` returns ~30% noise (inline images, meeting invites). Skip filters in sync handle this; don't double-filter downstream.
-- Privacy Filter is a token classifier (`transformers.pipeline("token-classification", ...)`), not generative. ~3 GB first-run download. Don't try to route it through Ollama or llama.cpp.
-- Docling's first run downloads ~2 GB of layout/table models — surface this in the CLI.
-- Qwen2.5-VL needs both the model GGUF **and** the mmproj file; llama-server silently runs without vision if mmproj is missing.
 - Use Gmail **message IDs** as primary keys (stable). Thread IDs can shift.
-- Re-running `scan` deletes prior `detections` and `message_verdicts` for the affected scope and rewrites them. Extraction results are cached by `content_hash` and skipped unless `--force-extract`.
+- **Gmail attachment IDs expire** after a few hours. Composite primary key on `attachments` is `(message_id, part_id)` — `part_id` is documented as immutable. The volatile `gmail_attachment_id` lives in its own column and gets refreshed on every metadata fetch.
+- Privacy Filter is a token classifier (`transformers.pipeline("token-classification", ...)`), not generative. ~3 GB first-run download. Don't try to route it through Ollama or llama.cpp.
+- Docling's first run downloads ~2 GB of layout/table/OCR models under `~/.cache/huggingface/hub/`. The scan CLI logs `docling.first_call_may_download_models` once on first use.
+- **`opencv-python-headless` (not `opencv-python`)** is an explicit dep. Docling's `OcrAutoOptions` may pick EasyOCR on macOS, which imports `cv2`; the GUI-flavored `opencv-python` wheel often fails to load on headless Macs. If you ever see `ModuleNotFoundError: No module named 'cv2'` from a Docling extraction, check that headless variant is what's installed.
+- Re-running `scan` rewrites `detections` and `message_verdicts` (those are scan-scoped). Extraction results are cached by `content_hash` and skipped unless `--force-extract`. Identical bytes from multiple emails share one `.md` cache file.

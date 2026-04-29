@@ -206,6 +206,7 @@ def scan(
                 force_extract=force_extract,
                 only_extract=only_extract,
                 only_detect=only_detect,
+                extract_concurrency=settings.extraction.extract_concurrency,
                 on_total_known=_on_total_known,
                 on_attachment_done=_on_attachment_done,
             )
@@ -347,7 +348,7 @@ def status() -> None:
     ext_table.add_column("status")
     ext_table.add_column("count", justify="right")
     ext_table.add_row("extracted", str(ext_extracted))
-    ext_table.add_row("pending (qwen-vl in step 5)", str(ext_pending))
+    ext_table.add_row("pending", str(ext_pending))
     ext_table.add_row("unparseable", str(ext_unparseable))
     ext_table.add_row("not yet scanned", str(ext_unscanned))
     console.print(ext_table)

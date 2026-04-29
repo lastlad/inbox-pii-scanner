@@ -4,6 +4,8 @@
 
 A self-hosted, local-first tool that scans a Gmail inbox for emails containing sensitive attachments (IDs, financial documents, tax forms, medical records, credentials, legal docs), extracts the text from those attachments, runs PII detection on the extracted text, and presents flagged emails in a local web UI for the user to review one at a time. The tool is **strictly read-only** — it never modifies the user's mailbox. When the user wants to act on a flagged email, the UI provides a button that opens that specific email in Gmail's web interface, where the user does the actual cleanup manually.
 
+> **Plan revision (2026-04-29):** the original plan called for a two-track extractor — Docling for born-digital documents, Qwen2.5-VL via local `llama-server` for images and scanned PDFs. Real-attachment testing showed Docling 2.x's native image pipeline (with on-by-default OCR via `OcrAutoOptions` → EasyOCR / Apple Vision / RapidOCR) handles every category we care about, including USPS shipping labels and marketing images, in <5s each on Apple Silicon. Single-backend extraction is the v1 design now. The build order below has been updated; step 5 (originally "Qwen2.5-VL extractor") collapsed into step 4. If we ever need handwriting or chart-data fallback, Docling's own opt-in `do_picture_description` flag wires in SmolVLM without bringing back a second HTTP service.
+
 ## Non-goals for v1
 
 - No write access to Gmail (no labels, no archive, no delete, no quarantine).
@@ -68,10 +70,10 @@ This means the user pays the Gmail API cost exactly once, then iterates locally 
 │   Read attachments from disk ──► Attachment Router              ││
 │                                          │                       ││
 │                                          ▼                       ││
-│                              ┌─────────────────┐  ┌──────────┐  ││
-│                              │ Born-digital?   │  │ Scan/img?│  ││
-│                              │ → Docling       │  │ → Qwen-VL│  ││
-│                              └─────────────────┘  └──────────┘  ││
+│                              ┌─────────────────────────────┐    ││
+│                              │ Docling (PDF, Office, image)│    ││
+│                              │ + auto OCR for scans/photos │    ││
+│                              └─────────────────────────────┘    ││
 │                                          │                       ││
 │                                          ▼                       ││
 │                              ┌──────────────────┐               ││
@@ -107,8 +109,7 @@ This means the user pays the Gmail API cost exactly once, then iterates locally 
 | Frontend | Plain HTML + Alpine.js + Tailwind (CDN) | No build step. Single `index.html` served by FastAPI. |
 | DB | SQLite (via SQLAlchemy 2.0 or sqlite3 stdlib) | Single file at `~/.inbox-scanner/state.db` |
 | Gmail | `google-api-python-client` + `google-auth-oauthlib` | Read-only scope |
-| Born-digital extraction | Docling | |
-| OCR/scan extraction | Qwen2.5-VL-7B-Instruct (Q4_K_M GGUF) via `llama-server` | OpenAI-compatible API |
+| Extraction (PDF, Office, image, OCR) | Docling 2.x | Single backend; OCR auto-routes via OcrAutoOptions (EasyOCR / Apple Vision / RapidOCR). Needs `opencv-python-headless` for the EasyOCR path. |
 | Pattern PII | Microsoft Presidio (`presidio-analyzer`) | |
 | Contextual PII | OpenAI Privacy Filter via `transformers` | |
 | Async/concurrency | `asyncio` + `httpx` for HTTP, thread pool for sync libs | |
@@ -131,12 +132,14 @@ This means the user pays the Gmail API cost exactly once, then iterates locally 
 │       ├── ab/cd/abcd1234...   # sharded by hash prefix
 │       └── ...
 ├── extracted/               # Cached extracted text per attachment (Phase 2 output)
-├── logs/
-│   ├── sync.log
-│   └── scanner.log
-└── models/                  # Downloaded GGUF models go here
-    └── Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf
+└── logs/
+    ├── sync.log
+    └── scanner.log
 ```
+
+Docling caches its layout/table/OCR models under `~/.cache/huggingface/hub/`
+(the standard HF cache path) on first scan — that's outside the data dir
+on purpose so multiple checkouts share one ~2 GB model directory.
 
 Attachments are stored under `attachments/blobs/` with filenames derived from a SHA-256 hash of the content (sharded into two-character directories to avoid huge flat directories). Two emails with identical attachments (very common — e.g., the same insurance card emailed multiple times) share storage.
 
@@ -396,81 +399,51 @@ Multiple `attachments` rows can point to the same `content_hash` / `blob_path`. 
 
 ### 3. Attachment router (`inbox_scanner/extraction/router.py`)
 
-Decides which extractor to use based on attachment metadata + content sniffing:
+Mime-only allowlist — Docling 2.x sniffs born-digital vs. scanned PDFs internally via `do_ocr=True` so we don't pre-classify:
 
-```
-def route(attachment) -> Literal["docling", "qwen-vl", "unparseable"]:
-    mime = attachment.mime_type
-    
-    # Images → VLM
-    if mime.startswith("image/"):
-        if mime in {"image/png", "image/jpeg", "image/heic", "image/heif", "image/webp"}:
-            return "qwen-vl"
-        return "unparseable"
-    
-    # PDF → check for text layer
-    if mime == "application/pdf":
-        if has_extractable_text_layer(attachment.bytes):
-            return "docling"
-        else:
-            return "qwen-vl"  # scanned PDF
-    
-    # Office docs and structured formats → docling
-    if mime in {
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        "application/msword",
-        "text/html",
-        "text/plain",
-        "text/csv",
-    }:
-        return "docling"
-    
-    return "unparseable"
+```python
+ExtractionRoute = Literal["docling", "unparseable"]
+
+DOCLING_MIME_TYPES = {
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "application/msword",
+    "text/html", "text/plain", "text/csv", "text/markdown",
+    "image/png", "image/jpeg", "image/tiff", "image/bmp", "image/webp",
+}
+
+def route(mime_type: str | None) -> ExtractionRoute:
+    return "docling" if _canonicalize(mime_type) in DOCLING_MIME_TYPES else "unparseable"
 ```
 
-`has_extractable_text_layer` uses `pypdfium2` to extract text from the first 3 pages; if total length > 100 chars and not mostly whitespace, it's born-digital.
+Anything outside the allowlist (HEIC, SVG, GIF, archives, audio/video) gets `unparseable`. We canonicalize a few common aliases (`image/jpg` → `image/jpeg`, `image/x-png` → `image/png`) before matching.
 
 ### 4. Docling extractor
 
 ```python
+from docling.datamodel.base_models import DocumentStream
 from docling.document_converter import DocumentConverter
 
-converter = DocumentConverter()  # singleton, reuse
+converter = DocumentConverter()  # singleton, ~2 GB models lazy-downloaded on first call
 
-def extract(attachment_bytes: bytes, filename: str) -> ExtractionResult:
-    # Write to temp file, run converter, return markdown text
-    ...
+def extract(content: bytes, filename: str) -> str:
+    stream = DocumentStream(name=filename, stream=BytesIO(content))
+    result = converter.convert(stream)
+    return result.document.export_to_markdown()
 ```
 
-Use Docling's default markdown export. Don't try to be clever about table preservation — for PII detection, the text is what matters.
+Default Docling settings (`PdfPipelineOptions(do_ocr=True, do_table_structure=True, ocr_options=OcrAutoOptions())`) handle every category we care about: born-digital PDFs, scanned PDFs (auto-OCR fallback), Office docs, and the supported image formats. Markdown export preserves table structure for receipts/forms.
 
-### 5. Qwen2.5-VL extractor
+**Why no separate VLM:** the original plan routed images and scanned PDFs through Qwen2.5-VL via `llama-server`. End-to-end testing on a real corpus showed Docling's literal-text OCR output is actually more useful for downstream entity-style PII detection than a VLM's narrative description, and the operational simplification (one backend, no second HTTP service, no model file management) is significant. If we ever hit content Docling can't OCR well (handwriting, rotated images, charts), Docling 2.x exposes `do_picture_description=True` which loads SmolVLM in-process — no llama-server.
 
-**Runtime:** the user is responsible for starting `llama-server` separately. Document this in the README. Recommended command:
+**OCR backend selection:** `OcrAutoOptions` picks the first available of:
+1. **Apple Vision** (`ocrmac`) on macOS — installed via Docling's deps, no extra config.
+2. **EasyOCR** (`easyocr`) — needs `cv2`; we depend on `opencv-python-headless` explicitly because the GUI variant `opencv-python` fails to import on headless macOS environments.
+3. **RapidOCR** (`rapidocr`) — ONNX-based fallback.
 
-```bash
-llama-server \
-    --model ~/.inbox-scanner/models/Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf \
-    --mmproj ~/.inbox-scanner/models/mmproj-Qwen2.5-VL-7B-Instruct-f16.gguf \
-    --port 8080 \
-    --host 127.0.0.1 \
-    --ctx-size 8192 \
-    --n-gpu-layers 99
-```
-
-(The implementer should verify the exact GGUF filenames available on Hugging Face at build time and update the README — model filenames change.)
-
-The `inbox-scanner` config has a `vlm_endpoint` field defaulting to `http://127.0.0.1:8080/v1`. We talk to it via the OpenAI-compatible chat completions endpoint with image input.
-
-**Extractor logic:**
-- For PDFs without text layer, rasterize each page to PNG at 200 DPI using `pypdfium2`. Cap at first 20 pages per attachment to bound cost.
-- For images, send directly (resizing only if dimension > 2000px on longest side).
-- Prompt: `"Transcribe all visible text from this document image. Preserve structure (headings, tables, lists) using markdown. Do not summarize, paraphrase, or omit any text. If the image is unreadable, respond with exactly: [UNREADABLE]"`
-- Each page is one VLM call; concatenate page outputs with `\n\n---PAGE BREAK---\n\n`.
-- Timeout per page: 120 seconds. On timeout or error, mark that page as `[EXTRACTION_FAILED]` and continue.
-- Concurrency: max 2 concurrent VLM calls (configurable). The 7B model on a single Apple Silicon machine cannot serve more than that without falling over.
+**Concurrency:** the scan pipeline wraps Docling in an `asyncio.Semaphore(extract_concurrency)` (default 2). Docling does its own internal concurrency for layout/table/OCR; the outer semaphore mostly keeps the progress bar honest and avoids spawning more workers than CPU cores.
 
 ### 6. Detection layer
 
@@ -618,12 +591,7 @@ gmail:
 
 extraction:
   max_attachment_bytes: 52428800        # 50 MB per attachment
-  vlm_endpoint: http://127.0.0.1:8080/v1
-  vlm_model: qwen2.5-vl-7b              # passed as `model` in requests
-  vlm_max_concurrency: 2
-  vlm_page_timeout_seconds: 120
-  pdf_max_pages: 20
-  pdf_dpi: 200
+  extract_concurrency: 2                # outer asyncio.Semaphore for Docling calls
 
 detection:
   presidio_threshold: 0.5
@@ -673,17 +641,16 @@ Don't write tests for Docling, Privacy Filter, or Qwen2.5-VL accuracy — those 
 
 Ship in this order so each step produces something testable:
 
-1. **Project scaffolding** — `pyproject.toml` with `uv`, module layout, empty CLI commands, config loader, DB schema + Alembic migrations, structured logging setup, blob storage helpers.
-2. **Gmail auth + sync (no attachments)** — `inbox-scanner auth` works, `inbox-scanner sync --limit 5` lists 5 messages and writes stubs to DB. Don't download attachment bytes yet, just metadata.
-3. **Sync with attachment download** — extend sync to download attachment bytes to content-addressed blob storage. Now `inbox-scanner sync --limit 20` produces a fully populated local cache. Test resume: kill mid-sync, re-run, verify it picks up where it left off.
-4. **Docling extractor + router (offline)** — `inbox-scanner scan --only-extract` works against cached blobs. Born-digital PDFs extract correctly. VLM route still marked `unparseable` temporarily.
-5. **Qwen2.5-VL extractor** — wire up llama-server client, handle images and rasterized PDFs. README explains how to start llama-server. Now `--only-extract` covers the full corpus.
-6. **Detection layer** — Presidio + Privacy Filter + custom regex, categorizer, verdict computation. `inbox-scanner scan --only-detect` works on cached extracted text.
-7. **Full scan pipeline** — `inbox-scanner scan` runs extract + detect end to end. Verify re-running `scan` produces identical results without touching Gmail.
-8. **FastAPI server + endpoints** — JSON API works against the populated DB.
-9. **Frontend** — single-page Alpine.js review UI. Hook up "Open in Gmail" buttons.
-10. **README** — installation, OAuth setup, llama-server setup, sync vs scan workflow, how to interpret results, security notes about the data directory.
-11. **Polish** — progress bars during sync and scan, status command, reset command, Ctrl-C handling.
+1. **Project scaffolding** ✅ — `pyproject.toml` with `uv`, module layout, empty CLI commands, config loader, DB schema + Alembic migrations, structured logging setup, blob storage helpers.
+2. **Gmail auth + sync (no attachments)** ✅ — `inbox-scanner auth` works, `inbox-scanner sync --limit 5` lists 5 messages and writes stubs to DB. Just metadata, no attachment bytes yet.
+3. **Sync with attachment download** ✅ — extend sync to download attachment bytes to content-addressed blob storage. `inbox-scanner sync --limit 20` produces a fully populated local cache. 4-worker async with 20 RPS bucket; resume tested.
+4. **Docling extractor + router (offline)** ✅ — `inbox-scanner scan --only-extract` works against cached blobs. Single-backend (Docling 2.x) handles PDFs, Office docs, and supported images via on-by-default OCR. Original "step 5: Qwen2.5-VL extractor" was collapsed into this — see plan revision note at the top.
+5. **Detection layer** — Presidio + Privacy Filter + custom regex, categorizer, verdict computation. `inbox-scanner scan --only-detect` works on cached extracted text.
+6. **Full scan pipeline** — `inbox-scanner scan` runs extract + detect end to end. Verify re-running `scan` produces identical results without touching Gmail.
+7. **FastAPI server + endpoints** — JSON API works against the populated DB.
+8. **Frontend** — single-page Alpine.js review UI. Hook up "Open in Gmail" buttons.
+9. **README** — installation, OAuth setup, sync vs scan workflow, how to interpret results, security notes about the data directory.
+10. **Polish** — progress bars during sync and scan, status command, reset command, Ctrl-C handling.
 
 Each step should be a separate PR/commit so the user can review incrementally.
 
@@ -695,11 +662,11 @@ Each step should be a separate PR/commit so the user can review incrementally.
 
 - **Disk usage scales with inbox size.** A 50,000-message inbox with attachments could be 50–200 GB on disk after sync. The sync command should print a periodic estimate (`Downloaded 1,234 attachments, 4.2 GB so far`). Add a `--max-total-bytes` config option that aborts sync gracefully if exceeded.
 - **Privacy Filter is not a generative model** — it's a token classifier that needs `transformers` directly, not Ollama or llama.cpp. Use `transformers.pipeline("token-classification", model="openai/privacy-filter", aggregation_strategy="simple")`. First run downloads ~3 GB of weights.
-- **Qwen2.5-VL needs both a model GGUF and an mmproj file.** llama-server requires `--mmproj` for vision capability. Document this clearly.
 - **Gmail message IDs are stable but thread IDs can change.** Use message IDs as primary keys.
-- **Docling's first run downloads layout/table models** (~2 GB). Surface this in the CLI as "Downloading models on first use, this may take a few minutes."
+- **Gmail attachment IDs expire after a few hours.** Don't include them in any composite primary key. We key attachments by `(message_id, part_id)` since `part_id` is documented as immutable; the volatile `gmail_attachment_id` lives in its own column and is refreshed on every metadata fetch.
+- **Docling's first run downloads layout/table/OCR models** (~2 GB combined) under `~/.cache/huggingface/hub/`. The CLI emits a one-time `docling.first_call_may_download_models` log line on the first extraction attempt.
+- **EasyOCR + opencv on macOS:** Docling's `OcrAutoOptions` may select EasyOCR, which imports `cv2`. The default `opencv-python` wheel can fail to load on headless macOS environments — depend on `opencv-python-headless` explicitly. (We've already done this and pinned it in `pyproject.toml`.)
 - **`messages.list` with `has:attachment`** still returns plenty of messages whose only "attachment" is an inline image or a meeting invite. The skip filters in the sync phase handle most of these but expect ~30% of "has:attachment" results to yield zero useful attachments after filtering.
-- **Apple Silicon + llama.cpp:** make sure the user installs llama.cpp built with Metal support. The README should link to `brew install llama.cpp` (which does the right thing on macOS).
 - **The data directory contains plaintext attachment bytes, extracted text, and PII spans.** README must mention this prominently. Suggest verifying FileVault is on.
 - **Content-addressed dedup means you cannot delete a single attachment by deleting its blob.** If two messages share a blob and the user wants to scrub one, the blob must stay. For v1, just document this; deletion isn't in scope anyway.
 

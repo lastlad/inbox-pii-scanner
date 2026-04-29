@@ -1,109 +1,75 @@
 """Decide which extractor (if any) handles a given attachment.
 
-The router is intentionally pure-ish: a small set of mime allowlists and a
-PDF text-layer probe. Real OCR / layout analysis happens in the extractors
-themselves. Keeping the routing logic small and direct makes it easy to
-unit-test without spinning up Docling or a VLM.
+Single-backend design for v1: everything Docling supports goes through
+Docling. The earlier two-track plan (Docling for born-digital, Qwen-VL via
+``llama-server`` for images and scanned PDFs) was written before Docling
+2.x added native image support and on-by-default OCR. Real-attachment
+testing (USPS shipping label, marketing JPEGs, PDF receipts) showed
+Docling's literal-text OCR output is actually more useful for downstream
+PII detection than a VLM's narrative description, so we collapsed.
+
+If we ever need richer image understanding (handwriting, complex charts),
+Docling's own ``do_picture_description`` flag wires in SmolVLM as an
+opt-in enrichment without bringing back a second HTTP service.
 """
 
 from __future__ import annotations
 
 from typing import Literal
 
-import pypdfium2 as pdfium
+ExtractionRoute = Literal["docling", "unparseable"]
 
-ExtractionRoute = Literal["docling", "qwen-vl", "unparseable"]
-
-# Image formats Qwen2.5-VL handles natively. Everything else under
-# ``image/*`` (svg, gif, tiff, etc.) is too lossy or animated to be worth
-# OCR'ing for v1.
-VLM_IMAGE_MIME_TYPES: frozenset[str] = frozenset(
-    {
-        "image/png",
-        "image/jpeg",
-        "image/jpg",  # non-standard but seen in the wild
-        "image/heic",
-        "image/heif",
-        "image/webp",
-    }
-)
-
-# Mime types Docling's pipeline natively handles. Includes Office docs and
-# common plaintext formats. We pass these through directly even when the
-# filename has the wrong extension — Docling's sniffers are robust enough.
+# Mime types Docling 2.x's pipeline natively handles. Sourced from the
+# library's own ``MimeTypeToFormat`` mapping at install time and trimmed to
+# what we actually expect to see in email attachments. ``image/jpg`` is
+# non-standard but turns up in the wild; we normalize it to ``image/jpeg``
+# at lookup time.
 DOCLING_MIME_TYPES: frozenset[str] = frozenset(
     {
+        # Documents
+        "application/pdf",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",  # docx
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",  # xlsx
         "application/vnd.openxmlformats-officedocument.presentationml.presentation",  # pptx
-        "application/msword",  # doc (legacy)
+        "application/msword",  # legacy doc — Docling tries best-effort
         "text/html",
         "text/plain",
         "text/csv",
         "text/markdown",
+        # Images: Docling routes these through its IMAGE InputFormat
+        # (OCR via EasyOCR, layout via the bundled layout model).
+        "image/png",
+        "image/jpeg",
+        "image/tiff",
+        "image/bmp",
+        "image/webp",
+        # ``image/gif`` is technically supported by Docling but pre-filtered
+        # at sync time as low-signal noise; it stays out of the allowlist
+        # so it surfaces as 'unparseable' if a future code path stops
+        # filtering it.
     }
 )
 
-# Heuristic threshold for "this PDF is born-digital". 100 chars over the
-# first three pages reliably distinguishes the real-text case from a scan
-# whose ``get_text_range`` returns just the leftover invisible OCR layer
-# (often 0–30 chars).
-_PDF_TEXT_PAGES_TO_CHECK = 3
-_PDF_TEXT_MIN_CHARS = 100
+# Mime aliases we normalize before matching the allowlist. Keys are what we
+# might see; values are the canonical Docling-recognised mime.
+_MIME_ALIASES: dict[str, str] = {
+    "image/jpg": "image/jpeg",
+    "image/x-png": "image/png",
+}
 
 
-def has_pdf_text_layer(content: bytes) -> bool:
-    """Return True if the PDF has a meaningful extractable text layer.
-
-    Reads up to ``_PDF_TEXT_PAGES_TO_CHECK`` pages, accumulating their
-    text. Stops early once the threshold is met. Treats parse errors as
-    "no text layer" rather than crashing — pypdfium2 can raise on
-    corrupted or password-protected PDFs.
-    """
-    try:
-        pdf = pdfium.PdfDocument(content)
-    except pdfium.PdfiumError:
-        return False
-    try:
-        text_chars = 0
-        n_pages = min(len(pdf), _PDF_TEXT_PAGES_TO_CHECK)
-        for i in range(n_pages):
-            page = pdf[i]
-            try:
-                textpage = page.get_textpage()
-                # ``get_text_bounded`` is the v4 successor to
-                # ``get_text_range`` — same semantics with explicit defaults,
-                # avoids a UserWarning at runtime.
-                page_text = textpage.get_text_bounded()
-            finally:
-                page.close()
-            text_chars += len(page_text.strip())
-            if text_chars >= _PDF_TEXT_MIN_CHARS:
-                return True
-        return False
-    finally:
-        pdf.close()
+def _canonicalize(mime_type: str | None) -> str:
+    mime = (mime_type or "application/octet-stream").lower().strip()
+    return _MIME_ALIASES.get(mime, mime)
 
 
-def route(mime_type: str | None, content: bytes) -> ExtractionRoute:
+def route(mime_type: str | None) -> ExtractionRoute:
     """Decide the extraction route for a single attachment.
 
-    ``content`` is only consulted for PDFs (to probe the text layer);
-    callers can pass ``b""`` if they know the mime up front and just want
-    the mime-only verdict.
+    No content sniffing — mime type alone determines the route. Docling's
+    pipeline auto-detects whether a PDF is born-digital vs. scanned, so
+    we don't need to pre-classify here.
     """
-    mime = (mime_type or "application/octet-stream").lower()
-
-    if mime == "application/pdf":
-        return "docling" if has_pdf_text_layer(content) else "qwen-vl"
-
-    if mime in VLM_IMAGE_MIME_TYPES:
-        return "qwen-vl"
-
-    if mime.startswith("image/"):
-        return "unparseable"
-
-    if mime in DOCLING_MIME_TYPES:
+    if _canonicalize(mime_type) in DOCLING_MIME_TYPES:
         return "docling"
-
     return "unparseable"

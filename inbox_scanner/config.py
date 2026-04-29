@@ -62,12 +62,10 @@ class GmailConfig(BaseModel):
 
 class ExtractionConfig(BaseModel):
     max_attachment_bytes: int = 50 * 1024 * 1024  # 50 MB
-    vlm_endpoint: str = "http://127.0.0.1:8080/v1"
-    vlm_model: str = "qwen2.5-vl-7b"
-    vlm_max_concurrency: int = 2
-    vlm_page_timeout_seconds: int = 120
-    pdf_max_pages: int = 20
-    pdf_dpi: int = 200
+    # Docling does its own internal concurrency for layout/OCR. We add an
+    # outer thread-pool semaphore in scan_pipeline mostly to keep the
+    # progress bar honest and avoid spawning more workers than CPU cores.
+    extract_concurrency: int = 2
 
 
 class DetectionConfig(BaseModel):
@@ -135,10 +133,6 @@ class Settings(BaseSettings):
         return self.data_dir / "logs"
 
     @property
-    def models_dir(self) -> Path:
-        return self.data_dir / "models"
-
-    @property
     def credentials_path(self) -> Path:
         return self.gmail.credentials_path or (self.data_dir / "credentials.json")
 
@@ -153,7 +147,6 @@ class Settings(BaseSettings):
             self.attachments_dir / "blobs",
             self.extracted_dir,
             self.logs_dir,
-            self.models_dir,
         ):
             d.mkdir(parents=True, exist_ok=True)
 
