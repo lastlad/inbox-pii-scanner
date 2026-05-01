@@ -1,15 +1,25 @@
 """Phase 2 scan pipeline.
 
-Currently scopes the **extract stage**. Iterates downloaded attachments,
-routes each via :func:`inbox_scanner.extraction.router.route` (Docling vs.
-unparseable), runs Docling on supported mimes (PDFs born-digital or
-scanned, Office docs, PNG/JPEG/TIFF/BMP/WEBP images), writes the result to
-``<data_dir>/extracted/<content_hash>.md``, and updates the
-``Attachment.extraction_*`` columns.
+Two stages:
 
-Extraction is keyed by ``content_hash`` — two attachments with identical
-bytes share one cached ``.md`` file and one extraction call. The detect
-stage lands next.
+* **Extract** — iterates downloaded attachments, routes each via the
+  :mod:`router <inbox_scanner.extraction.router>`, runs Docling on
+  supported mimes, writes markdown to
+  ``<data_dir>/extracted/<content_hash>.md``, and updates the
+  ``Attachment.extraction_*`` columns. Cached by ``content_hash`` so two
+  attachments with identical bytes share one extraction call.
+
+* **Detect** — reads the extracted markdown, runs Presidio + Privacy
+  Filter + custom regex via the :mod:`detection runner
+  <inbox_scanner.detection.runner>`, and rewrites the ``detections`` and
+  ``message_verdicts`` rows for every message touched. Detection results
+  are scan-scoped: re-running ``scan`` blows away the prior scan's
+  detections for the affected attachments and writes fresh ones, so
+  threshold tweaks always reflect the current config.
+
+``--only-extract`` skips stage B (useful while iterating on extractors).
+``--only-detect`` skips stage A (useful while iterating on detectors —
+extracted markdown is already cached).
 """
 
 from __future__ import annotations
@@ -18,16 +28,18 @@ import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from inbox_scanner.blobs import read_blob
 from inbox_scanner.config import Settings
 from inbox_scanner.db import session_scope
+from inbox_scanner.detection import categorizer, runner as detection_runner
+from inbox_scanner.detection.types import Detection as DetectionTuple, Finding
 from inbox_scanner.extraction import docling_extractor
 from inbox_scanner.extraction.router import route as route_attachment
 from inbox_scanner.logging import get_logger
-from inbox_scanner.models import Attachment, Scan
+from inbox_scanner.models import Attachment, Detection, Message, MessageVerdict, Scan
 
 log = get_logger("scan")
 
@@ -36,10 +48,11 @@ EXT_PENDING = "pending"
 EXT_EXTRACTED = "extracted"
 EXT_UNPARSEABLE = "unparseable"
 
-# Concurrency: Docling holds the GIL for parts of layout analysis but
-# releases it during I/O and torch ops, so a small thread pool helps.
-# Keep it modest — real OCR (qwen-vl in step 5) will dominate scan time.
 _DEFAULT_EXTRACT_CONCURRENCY = 2
+# Detection runs sequentially per attachment (Presidio + Privacy Filter
+# share singletons internally and don't gain from parallelism on CPU);
+# keep the knob exposed for future tuning.
+_DEFAULT_DETECT_CONCURRENCY = 1
 
 
 def _utc_naive_now() -> datetime:
@@ -280,6 +293,166 @@ def _process_one(
     return EXT_EXTRACTED
 
 
+# ---------- detect stage helpers ----------
+
+
+def _select_detect_work(
+    session_factory: sessionmaker[Session],
+) -> list[dict]:
+    """Return attachments with cached extracted text. Detection always runs
+    over the full set (per-scan rewrite); there's no ``force_detect`` knob."""
+    with session_scope(session_factory) as session:
+        rows = session.execute(
+            select(
+                Attachment.id,
+                Attachment.message_id,
+                Attachment.extracted_text_path,
+                Attachment.content_hash,
+                Attachment.filename,
+            )
+            .where(Attachment.extraction_status == EXT_EXTRACTED)
+            .where(Attachment.extracted_text_path.is_not(None))
+        ).all()
+    return [
+        {
+            "attachment_id": r.id,
+            "message_id": r.message_id,
+            "extracted_text_path": r.extracted_text_path,
+            "content_hash": r.content_hash,
+            "filename": r.filename,
+        }
+        for r in rows
+    ]
+
+
+def _run_detection_for_attachment(
+    settings: Settings, item: dict
+) -> list[DetectionTuple]:
+    """Read the cached markdown and run all three detectors. Returns
+    categorized detections; the caller persists them."""
+    rel = item["extracted_text_path"]
+    if not rel:
+        return []
+    text_path = settings.extracted_dir / rel
+    if not text_path.is_file():
+        log.warning("detect.missing_extracted_text", path=str(text_path))
+        return []
+    text = text_path.read_text(encoding="utf-8", errors="replace")
+    if not text.strip():
+        return []
+    return detection_runner.run(
+        text,
+        presidio_threshold=settings.detection.presidio_threshold,
+        privacy_filter_threshold=settings.detection.privacy_filter_threshold,
+    )
+
+
+def _persist_detections(
+    session_factory: sessionmaker[Session],
+    scan_id: int,
+    attachment_id: str,
+    detections: list[DetectionTuple],
+) -> None:
+    """Replace this attachment's detection rows with the given list.
+
+    Per the plan, ``scan`` is a full overwrite for the affected scope —
+    we drop any prior detection rows for this attachment (regardless of
+    which scan produced them) and write the current run's findings.
+    """
+    with session_scope(session_factory) as session:
+        session.execute(
+            delete(Detection).where(Detection.attachment_id == attachment_id)
+        )
+        now = _utc_naive_now()
+        for d in detections:
+            f = d.finding
+            session.add(
+                Detection(
+                    scan_id=scan_id,
+                    attachment_id=attachment_id,
+                    category=d.category,
+                    subtype=f.subtype,
+                    detector=f.detector,
+                    span_text=f.span_text[:500] if f.span_text else None,
+                    span_start=f.span_start,
+                    span_end=f.span_end,
+                    confidence=f.confidence,
+                    created_at=now,
+                )
+            )
+
+
+def _compute_and_persist_verdicts(
+    session_factory: sessionmaker[Session],
+    scan_id: int,
+    affected_message_ids: set[str],
+) -> int:
+    """Aggregate per-message verdicts from the just-written detection rows
+    and write/upsert the ``message_verdicts`` rows. Returns the number of
+    flagged messages."""
+    if not affected_message_ids:
+        return 0
+
+    flagged = 0
+    with session_scope(session_factory) as session:
+        for message_id in affected_message_ids:
+            # Pull every detection currently on disk for any attachment
+            # belonging to this message — re-aggregating lets the verdict
+            # remain accurate even if some attachments weren't touched
+            # this scan (e.g. they were already extracted from a prior
+            # scan and we ran ``--only-detect`` on a subset).
+            rows = session.execute(
+                select(
+                    Detection.category,
+                    Detection.subtype,
+                    Detection.detector,
+                    Detection.span_text,
+                    Detection.span_start,
+                    Detection.span_end,
+                    Detection.confidence,
+                )
+                .join(Attachment, Attachment.id == Detection.attachment_id)
+                .where(Attachment.message_id == message_id)
+            ).all()
+
+            verdict = categorizer.compute_verdict(
+                [
+                    DetectionTuple(
+                        finding=Finding(
+                            detector=r.detector,
+                            subtype=r.subtype,
+                            span_text=r.span_text or "",
+                            span_start=r.span_start or 0,
+                            span_end=r.span_end or 0,
+                            confidence=r.confidence or 0.0,
+                        ),
+                        category=r.category,
+                    )
+                    for r in rows
+                ]
+            )
+
+            # Upsert: delete then add (SQLite has no portable UPSERT in
+            # SQLAlchemy 2.0 outside dialect-specific INSERT … ON CONFLICT,
+            # and the verdict row count is bounded by inbox size).
+            session.execute(
+                delete(MessageVerdict).where(MessageVerdict.message_id == message_id)
+            )
+            session.add(
+                MessageVerdict(
+                    message_id=message_id,
+                    scan_id=scan_id,
+                    is_flagged=verdict["is_flagged"],
+                    top_category=verdict["top_category"],
+                    risk_score=verdict["risk_score"],
+                    category_summary=verdict["category_summary"],
+                )
+            )
+            if verdict["is_flagged"]:
+                flagged += 1
+    return flagged
+
+
 # ---------- top-level orchestrator ----------
 
 
@@ -291,8 +464,11 @@ async def run_scan(
     only_extract: bool = False,
     only_detect: bool = False,
     extract_concurrency: int = _DEFAULT_EXTRACT_CONCURRENCY,
-    on_total_known=None,
-    on_attachment_done=None,
+    detect_concurrency: int = _DEFAULT_DETECT_CONCURRENCY,
+    on_extract_total_known=None,
+    on_extract_done=None,
+    on_detect_total_known=None,
+    on_detect_done=None,
 ) -> int:
     if only_extract and only_detect:
         raise ValueError("only_extract and only_detect are mutually exclusive")
@@ -302,11 +478,15 @@ async def run_scan(
         "only_extract": only_extract,
         "only_detect": only_detect,
         "extract_concurrency": extract_concurrency,
+        "detect_concurrency": detect_concurrency,
+        "presidio_threshold": settings.detection.presidio_threshold,
+        "privacy_filter_threshold": settings.detection.privacy_filter_threshold,
     }
     scan_id = await asyncio.to_thread(_create_scan_row, session_factory, config_snapshot)
     log.info("scan.start", scan_id=scan_id, **config_snapshot)
 
     try:
+        # ---------- Stage A: extract ----------
         if only_detect:
             log.info("scan.skipping_extract", scan_id=scan_id)
             work: list[dict] = []
@@ -316,8 +496,8 @@ async def run_scan(
             )
 
         log.info("scan.extract_enumerated", scan_id=scan_id, count=len(work))
-        if on_total_known is not None:
-            on_total_known(len(work))
+        if on_extract_total_known is not None:
+            on_extract_total_known(len(work))
 
         processed = 0
         if work:
@@ -337,16 +517,65 @@ async def run_scan(
                         )
                     finally:
                         processed += 1
-                        if on_attachment_done is not None:
-                            on_attachment_done(item["attachment_id"])
+                        if on_extract_done is not None:
+                            on_extract_done(item["attachment_id"])
 
             await asyncio.gather(*[_do_one(item) for item in work])
 
-        # Detect stage lands in step 6. Until then `--only-detect` is a no-op
-        # and the default scan run completes after extraction.
+        # ---------- Stage B: detect ----------
+        flagged = 0
         if only_extract:
             log.info("scan.only_extract_done", scan_id=scan_id, processed=processed)
-        # (no detect-stage call yet)
+        else:
+            detect_work = await asyncio.to_thread(_select_detect_work, session_factory)
+            log.info(
+                "scan.detect_enumerated", scan_id=scan_id, count=len(detect_work)
+            )
+            if on_detect_total_known is not None:
+                on_detect_total_known(len(detect_work))
+
+            affected_message_ids: set[str] = set()
+            if detect_work:
+                sem_d = asyncio.Semaphore(detect_concurrency)
+
+                async def _detect_one(item: dict) -> None:
+                    async with sem_d:
+                        try:
+                            detections = await asyncio.to_thread(
+                                _run_detection_for_attachment, settings, item
+                            )
+                            await asyncio.to_thread(
+                                _persist_detections,
+                                session_factory,
+                                scan_id,
+                                item["attachment_id"],
+                                detections,
+                            )
+                            affected_message_ids.add(item["message_id"])
+                        except Exception:
+                            log.exception(
+                                "scan.detect_failed",
+                                attachment_id=item["attachment_id"],
+                            )
+                        finally:
+                            if on_detect_done is not None:
+                                on_detect_done(item["attachment_id"])
+
+                await asyncio.gather(*[_detect_one(item) for item in detect_work])
+
+            flagged = await asyncio.to_thread(
+                _compute_and_persist_verdicts,
+                session_factory,
+                scan_id,
+                affected_message_ids,
+            )
+            log.info(
+                "scan.detect_done",
+                scan_id=scan_id,
+                processed=len(detect_work),
+                messages_affected=len(affected_message_ids),
+                flagged_messages=flagged,
+            )
 
         await asyncio.to_thread(
             _finalize_scan_row,

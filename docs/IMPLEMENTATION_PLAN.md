@@ -645,7 +645,7 @@ Ship in this order so each step produces something testable:
 2. **Gmail auth + sync (no attachments)** ✅ — `inbox-scanner auth` works, `inbox-scanner sync --limit 5` lists 5 messages and writes stubs to DB. Just metadata, no attachment bytes yet.
 3. **Sync with attachment download** ✅ — extend sync to download attachment bytes to content-addressed blob storage. `inbox-scanner sync --limit 20` produces a fully populated local cache. 4-worker async with 20 RPS bucket; resume tested.
 4. **Docling extractor + router (offline)** ✅ — `inbox-scanner scan --only-extract` works against cached blobs. Single-backend (Docling 2.x) handles PDFs, Office docs, and supported images via on-by-default OCR. Original "step 5: Qwen2.5-VL extractor" was collapsed into this — see plan revision note at the top.
-5. **Detection layer** — Presidio + Privacy Filter + custom regex, categorizer, verdict computation. `inbox-scanner scan --only-detect` works on cached extracted text.
+5. **Detection layer** ✅ — Presidio + Privacy Filter + custom regex, categorizer, verdict computation. `inbox-scanner scan --only-detect` works on cached extracted text.
 6. **Full scan pipeline** — `inbox-scanner scan` runs extract + detect end to end. Verify re-running `scan` produces identical results without touching Gmail.
 7. **FastAPI server + endpoints** — JSON API works against the populated DB.
 8. **Frontend** — single-page Alpine.js review UI. Hook up "Open in Gmail" buttons.

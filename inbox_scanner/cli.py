@@ -27,7 +27,7 @@ from inbox_scanner.gmail.auth import CredentialsMissing, run_oauth_flow
 from inbox_scanner.gmail.sync import run_sync
 from inbox_scanner.logging import configure_logging, get_logger
 from inbox_scanner.migrations import apply_migrations
-from inbox_scanner.models import Attachment, Message, Scan, Sync
+from inbox_scanner.models import Attachment, Detection, Message, MessageVerdict, Scan, Sync
 from inbox_scanner.pipelines.scan_pipeline import run_scan
 
 app = typer.Typer(
@@ -190,13 +190,20 @@ def scan(
         console=console,
         transient=False,
     )
-    task_id = progress.add_task("Extracting", total=None)
+    extract_task = progress.add_task("Extracting", total=None, visible=not only_detect)
+    detect_task = progress.add_task("Detecting", total=None, visible=not only_extract)
 
-    def _on_total_known(total: int) -> None:
-        progress.update(task_id, total=total)
+    def _on_extract_total_known(total: int) -> None:
+        progress.update(extract_task, total=total)
 
-    def _on_attachment_done(_attachment_id: str) -> None:
-        progress.advance(task_id)
+    def _on_extract_done(_attachment_id: str) -> None:
+        progress.advance(extract_task)
+
+    def _on_detect_total_known(total: int) -> None:
+        progress.update(detect_task, total=total)
+
+    def _on_detect_done(_attachment_id: str) -> None:
+        progress.advance(detect_task)
 
     with _quiet_console_logging(), progress:
         scan_id = asyncio.run(
@@ -207,8 +214,10 @@ def scan(
                 only_extract=only_extract,
                 only_detect=only_detect,
                 extract_concurrency=settings.extraction.extract_concurrency,
-                on_total_known=_on_total_known,
-                on_attachment_done=_on_attachment_done,
+                on_extract_total_known=_on_extract_total_known,
+                on_extract_done=_on_extract_done,
+                on_detect_total_known=_on_detect_total_known,
+                on_detect_done=_on_detect_done,
             )
         )
 
@@ -344,6 +353,31 @@ def status() -> None:
             scan_table.add_row("error", last_scan.error)
         console.print(scan_table)
 
+    with session_scope(session_factory) as session:
+        flagged_count = session.scalar(
+            select(func.count()).select_from(MessageVerdict).where(
+                MessageVerdict.is_flagged.is_(True)
+            )
+        ) or 0
+        verdict_total = session.scalar(
+            select(func.count()).select_from(MessageVerdict)
+        ) or 0
+        category_breakdown = session.execute(
+            select(MessageVerdict.top_category, func.count())
+            .where(MessageVerdict.is_flagged.is_(True))
+            .group_by(MessageVerdict.top_category)
+        ).all()
+        top_messages = session.execute(
+            select(MessageVerdict, Message)
+            .join(Message, Message.id == MessageVerdict.message_id)
+            .where(MessageVerdict.is_flagged.is_(True))
+            .order_by(MessageVerdict.risk_score.desc())
+            .limit(5)
+        ).all()
+        detection_total = session.scalar(
+            select(func.count()).select_from(Detection)
+        ) or 0
+
     ext_table = Table(title="Extraction (downloaded attachments only)", show_header=True)
     ext_table.add_column("status")
     ext_table.add_column("count", justify="right")
@@ -352,6 +386,50 @@ def status() -> None:
     ext_table.add_row("unparseable", str(ext_unparseable))
     ext_table.add_row("not yet scanned", str(ext_unscanned))
     console.print(ext_table)
+
+    if verdict_total == 0:
+        console.print(
+            "[dim]no detection results yet — run `inbox-scanner scan` to populate findings[/dim]"
+        )
+        return
+
+    detect_table = Table(title="Detection", show_header=False, box=None)
+    detect_table.add_column("k", style="bold")
+    detect_table.add_column("v")
+    detect_table.add_row("messages with verdict", str(verdict_total))
+    detect_table.add_row("flagged", str(flagged_count))
+    detect_table.add_row("total findings", str(detection_total))
+    console.print(detect_table)
+
+    if category_breakdown:
+        cat_table = Table(title="Flagged messages by top category", show_header=True)
+        cat_table.add_column("category")
+        cat_table.add_column("count", justify="right")
+        for cat, n in sorted(category_breakdown, key=lambda kv: -kv[1]):
+            cat_table.add_row(cat or "?", str(n))
+        console.print(cat_table)
+
+    if top_messages:
+        top_table = Table(title="Top 5 flagged by risk score", show_header=True)
+        top_table.add_column("risk", justify="right")
+        top_table.add_column("category")
+        top_table.add_column("from")
+        top_table.add_column("subject")
+        for verdict, message in top_messages:
+            top_table.add_row(
+                f"{verdict.risk_score:.0f}",
+                verdict.top_category or "?",
+                _short(message.sender, 30),
+                _short(message.subject, 60),
+            )
+        console.print(top_table)
+
+
+def _short(s: str | None, n: int) -> str:
+    if not s:
+        return ""
+    s = s.replace("\n", " ").replace("\r", " ")
+    return s if len(s) <= n else s[: n - 1] + "…"
 
 
 # ---------- reset (still stubbed) ----------
