@@ -524,21 +524,25 @@ async def run_scan(
 
         # ---------- Stage B: detect ----------
         flagged = 0
+        detect_processed = 0
+        detect_total = 0
         if only_extract:
             log.info("scan.only_extract_done", scan_id=scan_id, processed=processed)
         else:
             detect_work = await asyncio.to_thread(_select_detect_work, session_factory)
+            detect_total = len(detect_work)
             log.info(
-                "scan.detect_enumerated", scan_id=scan_id, count=len(detect_work)
+                "scan.detect_enumerated", scan_id=scan_id, count=detect_total
             )
             if on_detect_total_known is not None:
-                on_detect_total_known(len(detect_work))
+                on_detect_total_known(detect_total)
 
             affected_message_ids: set[str] = set()
             if detect_work:
                 sem_d = asyncio.Semaphore(detect_concurrency)
 
                 async def _detect_one(item: dict) -> None:
+                    nonlocal detect_processed
                     async with sem_d:
                         try:
                             detections = await asyncio.to_thread(
@@ -558,6 +562,7 @@ async def run_scan(
                                 attachment_id=item["attachment_id"],
                             )
                         finally:
+                            detect_processed += 1
                             if on_detect_done is not None:
                                 on_detect_done(item["attachment_id"])
 
@@ -572,20 +577,32 @@ async def run_scan(
             log.info(
                 "scan.detect_done",
                 scan_id=scan_id,
-                processed=len(detect_work),
+                processed=detect_processed,
                 messages_affected=len(affected_message_ids),
                 flagged_messages=flagged,
             )
 
+        # The Scan row's ``processed_attachments`` is meant to answer "how
+        # many attachments did this scan touch". Take the max across the
+        # two stages so ``--only-detect`` runs report their detect count
+        # (extract was 0) and full runs report the larger working set.
+        scan_processed = max(processed, detect_processed)
+        scan_total = max(len(work), detect_total)
         await asyncio.to_thread(
             _finalize_scan_row,
             session_factory,
             scan_id,
             status="completed",
-            total=len(work),
-            processed=processed,
+            total=scan_total,
+            processed=scan_processed,
         )
-        log.info("scan.complete", scan_id=scan_id, processed=processed)
+        log.info(
+            "scan.complete",
+            scan_id=scan_id,
+            extract_processed=processed,
+            detect_processed=detect_processed,
+            flagged=flagged,
+        )
         return scan_id
 
     except Exception as e:

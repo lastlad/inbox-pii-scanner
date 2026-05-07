@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import warnings
 from typing import Any
 
 from inbox_scanner.detection.types import Finding
@@ -47,10 +48,43 @@ def _get_pipeline() -> Any:
             # ``transformers.logging`` is its public surface; the ``transformers``
             # stdlib logger is what writes to our console handler.
             logging.getLogger("transformers").setLevel(logging.ERROR)
+            # Silence huggingface_hub's "unauthenticated requests" tip on
+            # every cache check. It's informational — the call still
+            # works and the tip applies only to public models hitting
+            # rate limits, which we don't. Both routes (stdlib logger
+            # and warnings.warn) need silencing because the library
+            # version changes which one it uses.
+            logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
+            warnings.filterwarnings(
+                "ignore",
+                message=".*unauthenticated requests.*",
+            )
 
             from transformers import pipeline  # heavy import; defer until needed
+            from transformers.utils import logging as hf_logging
+
+            # Suppress the ``Loading weights: 0%…100%`` tqdm bar shown
+            # during model load. We surface our own structlog event when
+            # the model is initialized, which is the canonical record.
+            hf_logging.set_verbosity_error()
+            hf_logging.disable_progress_bar()
 
             log.info("privacy_filter.initializing", model=_MODEL_NAME)
+            # TODO(v1-polish): split-span artifact.
+            # ``aggregation_strategy="simple"`` does not merge across a
+            # BIE-sequence → S-single-token boundary, so an entity whose
+            # tokenizer split is 2+1 subwords comes out as two adjacent
+            # findings (e.g. "Sa…V" + "emu" for one private_person).
+            # Aggregate counts are correct but per-span boundaries aren't,
+            # which will look ugly when we render highlights in the UI
+            # (steps 7-8). Two cheap mitigations to evaluate then:
+            #   (a) switch to aggregation_strategy="first" and re-test
+            #       precision; or
+            #   (b) post-process in our _dedupe: merge adjacent same-
+            #       subtype findings where span_end == next.span_start
+            #       (or gap ≤ 1 char).
+            # Decision deferred until UI work begins so we can pick the
+            # option that matches what the highlight renderer needs.
             _pipeline = pipeline(
                 "token-classification",
                 model=_MODEL_NAME,
