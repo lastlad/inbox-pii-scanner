@@ -9,6 +9,7 @@ from datetime import date
 from typing import Annotated, Iterator, Optional
 
 import typer
+import uvicorn
 from rich.console import Console
 from rich.progress import (
     BarColumn,
@@ -29,6 +30,7 @@ from inbox_scanner.logging import configure_logging, get_logger
 from inbox_scanner.migrations import apply_migrations
 from inbox_scanner.models import Attachment, Detection, Message, MessageVerdict, Scan, Sync
 from inbox_scanner.pipelines.scan_pipeline import run_scan
+from inbox_scanner.server import create_app
 
 app = typer.Typer(
     help="Local-first, read-only Gmail PII scanner.",
@@ -228,13 +230,48 @@ def scan(
 
 @app.command()
 def serve(
-    port: Annotated[int, typer.Option(help="Port to bind on 127.0.0.1.")] = 8765,
+    host: Annotated[
+        str,
+        typer.Option(
+            help="Bind address. Default 127.0.0.1; overriding will print a loud warning.",
+        ),
+    ] = "127.0.0.1",
+    port: Annotated[int, typer.Option(help="Port.")] = 8765,
 ) -> None:
-    """Start the FastAPI review server (localhost only)."""
-    _bootstrap("server")
+    """Start the FastAPI review server.
+
+    The server is read-only and ships no auth — single-user local tool.
+    Defaults bind to ``127.0.0.1``; pass ``--host 0.0.0.0`` only if you
+    understand that the data dir contains plaintext attachment bytes,
+    extracted text, and PII spans.
+    """
+    settings = _bootstrap("server")
     log = get_logger("cli.serve")
-    log.info("serve.invoked", port=port)
-    raise typer.Exit(_not_implemented("serve"))
+    log.info("serve.invoked", host=host, port=port)
+
+    if host != "127.0.0.1":
+        console.print(
+            f"[bold red]⚠  Binding to {host}:{port}[/bold red] — this exposes the "
+            "scanner's read-only API (and through it, your indexed PII spans) "
+            "to anyone reachable on that interface. There is no auth. "
+            "Override only if you know what you're doing."
+        )
+
+    # Build the FastAPI app once and hand it to uvicorn. We don't use
+    # uvicorn's reload mode — that would re-import everything on every
+    # save and re-initialize Presidio + Privacy Filter every reload.
+    fastapi_app = create_app(settings)
+    console.print(
+        f"[green]Serving[/green] http://{host}:{port}/  •  "
+        f"API docs at http://{host}:{port}/docs  •  Ctrl-C to stop"
+    )
+    uvicorn.run(
+        fastapi_app,
+        host=host,
+        port=port,
+        log_config=None,  # we configure logging ourselves
+        access_log=False,
+    )
 
 
 # ---------- status ----------

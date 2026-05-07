@@ -70,21 +70,10 @@ def _get_pipeline() -> Any:
             hf_logging.disable_progress_bar()
 
             log.info("privacy_filter.initializing", model=_MODEL_NAME)
-            # TODO(v1-polish): split-span artifact.
-            # ``aggregation_strategy="simple"`` does not merge across a
-            # BIE-sequence → S-single-token boundary, so an entity whose
-            # tokenizer split is 2+1 subwords comes out as two adjacent
-            # findings (e.g. "Sa…V" + "emu" for one private_person).
-            # Aggregate counts are correct but per-span boundaries aren't,
-            # which will look ugly when we render highlights in the UI
-            # (steps 7-8). Two cheap mitigations to evaluate then:
-            #   (a) switch to aggregation_strategy="first" and re-test
-            #       precision; or
-            #   (b) post-process in our _dedupe: merge adjacent same-
-            #       subtype findings where span_end == next.span_start
-            #       (or gap ≤ 1 char).
-            # Decision deferred until UI work begins so we can pick the
-            # option that matches what the highlight renderer needs.
+            # ``aggregation_strategy="simple"`` doesn't merge across a
+            # BIE-sequence → S-single-token boundary; we fix that
+            # post-hoc with :func:`_merge_adjacent_same_subtype` so the
+            # API and UI see one finding per logical entity.
             _pipeline = pipeline(
                 "token-classification",
                 model=_MODEL_NAME,
@@ -119,6 +108,61 @@ def _dedupe(findings: list[Finding]) -> list[Finding]:
         seen.add(key)
         out.append(f)
     return out
+
+
+def _merge_adjacent_same_subtype(
+    findings: list[Finding], text: str
+) -> list[Finding]:
+    """Coalesce consecutive same-subtype findings whose spans touch.
+
+    Mitigates the BIE → S aggregation artifact in HuggingFace's "simple"
+    strategy, where a tokenizer's 2+1 subword split produces two
+    findings for what should be one entity (e.g. ``"Sa…V"`` then
+    ``"emu"`` for one ``private_person``).
+
+    Two findings merge when:
+
+    1. They share the same ``subtype`` (and therefore the same detector,
+       since subtypes are detector-namespaced).
+    2. There's at most one character of text between them
+       (``span_end >= next.span_start - 1``).
+
+    Confidence of the merged finding is a length-weighted mean of the
+    components — closest to what a single span would have if the model
+    had emitted one. ``span_text`` is re-sliced from ``text`` so it
+    spans the merged range exactly.
+    """
+    if not findings:
+        return []
+    sorted_findings = sorted(findings, key=lambda f: f.span_start)
+    merged: list[Finding] = []
+    for f in sorted_findings:
+        prev = merged[-1] if merged else None
+        if (
+            prev is not None
+            and prev.subtype == f.subtype
+            and prev.detector == f.detector
+            and prev.span_end >= f.span_start - 1
+        ):
+            new_start = prev.span_start
+            new_end = max(prev.span_end, f.span_end)
+            prev_len = max(1, prev.span_end - prev.span_start)
+            cur_len = max(1, f.span_end - f.span_start)
+            total_len = prev_len + cur_len
+            new_conf = (
+                prev.confidence * prev_len + f.confidence * cur_len
+            ) / total_len
+            merged[-1] = Finding(
+                detector=prev.detector,
+                subtype=prev.subtype,
+                span_text=text[new_start:new_end],
+                span_start=new_start,
+                span_end=new_end,
+                confidence=new_conf,
+            )
+        else:
+            merged.append(f)
+    return merged
 
 
 def detect(text: str, *, score_threshold: float = 0.6) -> list[Finding]:
@@ -161,4 +205,4 @@ def detect(text: str, *, score_threshold: float = 0.6) -> list[Finding]:
                 )
             )
 
-    return _dedupe(out)
+    return _merge_adjacent_same_subtype(_dedupe(out), text)

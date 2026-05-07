@@ -647,7 +647,7 @@ Ship in this order so each step produces something testable:
 4. **Docling extractor + router (offline)** ✅ — `inbox-scanner scan --only-extract` works against cached blobs. Single-backend (Docling 2.x) handles PDFs, Office docs, and supported images via on-by-default OCR. Original "step 5: Qwen2.5-VL extractor" was collapsed into this — see plan revision note at the top.
 5. **Detection layer** ✅ — Presidio + Privacy Filter + custom regex, categorizer, verdict computation. `inbox-scanner scan --only-detect` works on cached extracted text.
 6. **Full scan pipeline** ✅ — `inbox-scanner scan` runs extract + detect end to end. Idempotence verified on the dev corpus: the meaningful payload (attachment-id + category + subtype + detector + span boundaries + verdict tuple set) is bit-for-bit identical across two consecutive runs.
-7. **FastAPI server + endpoints** — JSON API works against the populated DB.
+7. **FastAPI server + endpoints** ✅ — `inbox-scanner serve` brings up the read-only API at `127.0.0.1:8765`. Endpoints: `/api/stats`, `/api/flagged?cursor=&limit=&category=&sort=`, `/api/email/{message_id}?snippet_window=N`. `gmail_url` constructed for every flagged item. Bind warning fires loudly if `--host` is overridden.
 8. **Frontend** — single-page Alpine.js review UI. Hook up "Open in Gmail" buttons.
 9. **README** — installation, OAuth setup, sync vs scan workflow, how to interpret results, security notes about the data directory.
 10. **Polish** — progress bars during sync and scan, status command, reset command, Ctrl-C handling.
@@ -671,23 +671,6 @@ Each step should be a separate PR/commit so the user can review incrementally.
 - **Content-addressed dedup means you cannot delete a single attachment by deleting its blob.** If two messages share a blob and the user wants to scrub one, the blob must stay. For v1, just document this; deletion isn't in scope anyway.
 
 ---
-
-## Known v1 polish backlog (fix before shipping the UI)
-
-Issues we've consciously parked because they don't block forward progress
-on the build order, but should be cleaned up before the FastAPI/UI step
-since they affect what users will see:
-
-- **Privacy Filter span splitting.** ``aggregation_strategy="simple"``
-  doesn't merge across a BIE-sequence → S-single-token boundary, so an
-  entity whose tokenizer split is 2+1 subwords comes out as two adjacent
-  findings (e.g. ``"Sa…V"`` + ``"emu"`` for one ``private_person``).
-  Aggregate counts and verdicts are correct; per-span boundaries aren't.
-  Two cheap mitigations to evaluate when we wire highlight rendering:
-  (a) switch to ``aggregation_strategy="first"`` and re-test precision,
-  or (b) post-process in ``_dedupe`` to merge adjacent same-subtype
-  findings whose ``span_end == next.span_start`` (or gap ≤ 1 char). See
-  TODO comment at ``inbox_scanner/detection/privacy_filter_detector.py``.
 
 ## Out of scope for v1, captured for v2 backlog
 
