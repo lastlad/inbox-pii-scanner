@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
 from contextlib import contextmanager
 from datetime import date
+from pathlib import Path
 from typing import Annotated, Iterator, Optional
 
 import typer
@@ -474,26 +476,142 @@ def _short(s: str | None, n: int) -> str:
 
 @app.command()
 def reset(
-    keep_token: Annotated[bool, typer.Option("--keep-token", help="Keep the OAuth token.")] = False,
     keep_attachments: Annotated[
         bool,
-        typer.Option("--keep-attachments", help="Keep downloaded attachment blobs."),
+        typer.Option(
+            "--keep-attachments",
+            help="Preserve downloaded attachment files (skip Gmail re-download on next sync).",
+        ),
     ] = False,
     keep_extractions: Annotated[
         bool,
-        typer.Option("--keep-extractions", help="Keep cached extracted text."),
+        typer.Option(
+            "--keep-extractions",
+            help="Preserve extracted text cache (skip Docling re-extraction on next scan).",
+        ),
+    ] = False,
+    wipe_all: Annotated[
+        bool,
+        typer.Option(
+            "--all",
+            help="Also wipe the OAuth token + credentials.json. Forces full re-setup.",
+        ),
+    ] = False,
+    yes: Annotated[
+        bool,
+        typer.Option("--yes", "-y", help="Skip the confirmation prompt."),
     ] = False,
 ) -> None:
-    """Wipe local state. By default keeps nothing unless --keep-* flags are passed."""
-    _bootstrap("cli")
+    """Wipe local scanner state.
+
+    By default, keeps your OAuth ``token.json`` and ``credentials.json`` so
+    you don't have to redo the Google sign-in or Cloud Console setup; wipes
+    everything else (the SQLite DB, downloaded attachments, extracted text,
+    logs).
+
+    Use ``--keep-attachments`` to preserve downloads — useful when
+    iterating on detector tuning so you don't re-pull everything from
+    Gmail. ``--keep-extractions`` additionally preserves the
+    Docling-extracted markdown cache. ``--all`` nukes the entire data
+    directory, including the OAuth artifacts.
+    """
+    settings = _bootstrap("cli")
     log = get_logger("cli.reset")
     log.info(
         "reset.invoked",
-        keep_token=keep_token,
         keep_attachments=keep_attachments,
         keep_extractions=keep_extractions,
+        wipe_all=wipe_all,
     )
-    raise typer.Exit(_not_implemented("reset"))
+
+    targets = _planned_reset_targets(
+        settings,
+        keep_attachments=keep_attachments,
+        keep_extractions=keep_extractions,
+        wipe_all=wipe_all,
+    )
+    if not targets:
+        console.print("[dim]Nothing to remove.[/dim]")
+        return
+
+    console.print("[bold]This will delete:[/bold]")
+    for p in targets:
+        existed = "" if p.exists() else " [dim](does not exist)[/dim]"
+        console.print(f"  • {p}{existed}")
+    console.print(f"[dim]Data dir: {settings.data_dir}[/dim]")
+
+    if not yes:
+        if not typer.confirm("Continue?", default=False):
+            console.print("[yellow]Aborted.[/yellow]")
+            raise typer.Exit(1)
+
+    removed = _execute_reset(
+        settings,
+        keep_attachments=keep_attachments,
+        keep_extractions=keep_extractions,
+        wipe_all=wipe_all,
+    )
+    log.info("reset.done", removed=[str(p) for p in removed], count=len(removed))
+
+    if wipe_all:
+        console.print(
+            "[green]Wiped everything.[/green] Re-run setup from "
+            "'Step 3 — Create a Google OAuth client' in the README."
+        )
+    else:
+        console.print(
+            f"[green]Reset complete.[/green] Removed {len(removed)} item(s). "
+            "OAuth token preserved — run `inbox-scanner sync` to repopulate."
+        )
+
+
+def _planned_reset_targets(
+    settings: Settings,
+    *,
+    keep_attachments: bool,
+    keep_extractions: bool,
+    wipe_all: bool,
+) -> list[Path]:
+    """List of paths the reset *would* operate on (for the confirm preview)."""
+    if wipe_all:
+        return [settings.data_dir]
+    targets: list[Path] = [settings.db_path, settings.logs_dir]
+    if not keep_attachments:
+        targets.append(settings.attachments_dir)
+    if not keep_extractions:
+        targets.append(settings.extracted_dir)
+    return targets
+
+
+def _execute_reset(
+    settings: Settings,
+    *,
+    keep_attachments: bool,
+    keep_extractions: bool,
+    wipe_all: bool,
+) -> list[Path]:
+    """Perform the wipe. Returns the paths actually removed."""
+    targets = _planned_reset_targets(
+        settings,
+        keep_attachments=keep_attachments,
+        keep_extractions=keep_extractions,
+        wipe_all=wipe_all,
+    )
+    removed: list[Path] = []
+    for path in targets:
+        if path.is_file():
+            path.unlink()
+            removed.append(path)
+        elif path.is_dir():
+            shutil.rmtree(path)
+            removed.append(path)
+
+    if not wipe_all:
+        # Recreate the empty skeleton so the next CLI invocation doesn't
+        # need to re-bootstrap from scratch. The DB itself is left absent;
+        # _bootstrap → apply_migrations will recreate it on next call.
+        settings.ensure_dirs()
+    return removed
 
 
 def _not_implemented(name: str) -> int:

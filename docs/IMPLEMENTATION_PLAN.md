@@ -650,7 +650,7 @@ Ship in this order so each step produces something testable:
 7. **FastAPI server + endpoints** ✅ — `inbox-scanner serve` brings up the read-only API at `127.0.0.1:8765`. Endpoints: `/api/stats`, `/api/flagged?cursor=&limit=&category=&sort=`, `/api/email/{message_id}?snippet_window=N`. `gmail_url` constructed for every flagged item. Bind warning fires loudly if `--host` is overridden.
 8. **Frontend** ✅ — single-file `inbox_scanner/frontend/index.html` (Alpine.js + Tailwind via CDN). Dashboard with sync/scan stats and by-category breakdown; review pane with sidebar filter (category + sort), pager, message header, attachments list, and findings grouped by category with snippet highlights using the API's `snippet_relative_start/end`. Keyboard shortcuts: J/K to navigate, O to open in Gmail, Esc to dashboard. Browser-tested via Playwright.
 9. **README** ✅ — non-technical-friendly setup (uv install, clone, OAuth client creation in Google Cloud Console click-by-click, auth, sync/scan/serve), data-dir layout + FileVault note, v1 limits.
-10. **Polish** — progress bars during sync and scan, status command, reset command, Ctrl-C handling.
+10. **Polish** ✅ — rich progress bars during sync + scan (steps 3 & 4), `status` with sync/extraction/detection tables (step 5), Ctrl-C-resumable sync + idempotent re-runs (step 6), and `reset` with composable `--keep-attachments` / `--keep-extractions` / `--all` flags + confirmation prompt (this step).
 
 Each step should be a separate PR/commit so the user can review incrementally.
 

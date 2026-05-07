@@ -176,14 +176,26 @@ This folder contains your actual attachment data and the PII the scanner
 identified. **Make sure FileVault is on** (System Settings → Privacy &
 Security → FileVault). It's on by default on most modern Macs.
 
-To wipe everything and start over, delete the folder:
+## Starting over
+
+Most of the time you don't want to redo the Google sign-in. To wipe just
+the local database and re-pull from Gmail:
 
 ```sh
-rm -rf .inbox-scanner-data
+uv run inbox-scanner reset
 ```
 
-Then redo the setup steps from "Step 3 — Create a Google OAuth client"
-onwards. (Steps 1 and 2 don't need to be redone.)
+That keeps `token.json` and `credentials.json` and clears everything
+else. It asks for confirmation; pass `-y` to skip the prompt.
+
+Other useful variants:
+
+| Command                                              | What it keeps                                                  |
+|------------------------------------------------------|---------------------------------------------------------------|
+| `inbox-scanner reset`                                | OAuth token + credentials                                     |
+| `inbox-scanner reset --keep-attachments`             | Above + downloaded attachment files (skip Gmail re-download) |
+| `inbox-scanner reset --keep-attachments --keep-extractions` | Above + extracted text cache (skip Docling re-run)    |
+| `inbox-scanner reset --all`                          | Nothing — full nuke, including the OAuth setup               |
 
 ## Limits
 
