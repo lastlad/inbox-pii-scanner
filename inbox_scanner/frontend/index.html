@@ -1,0 +1,595 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Inbox PII Scanner</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23dc2626' d='M12 1l-9 4v6c0 5.6 3.8 10.7 9 12 5.2-1.3 9-6.4 9-12V5l-9-4zm-1 6h2v6h-2V7zm0 8h2v2h-2v-2z'/%3E%3C/svg%3E" />
+  <!--
+    Single-file UI per the implementation plan. Tailwind via CDN and
+    Alpine.js for reactivity — no build step. Plan explicitly says
+    "must be functional, not pretty"; defaults are fine.
+
+    Two views:
+      • Dashboard — sync/scan stats + by-category breakdown.
+      • Review    — linear one-at-a-time over flagged messages.
+
+    Keyboard shortcuts (Review only): J=next, K=prev, O=open in Gmail,
+    Esc=back to dashboard.
+  -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+    /* Highlight matched span inside a snippet — yellow with subtle border */
+    mark.finding-hit {
+      background-color: #fde68a;
+      padding: 0 0.1rem;
+      border-radius: 2px;
+    }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-900 antialiased"
+      x-data="app()"
+      x-init="init()"
+      @keydown.window="handleKey($event)"
+      x-cloak>
+
+  <!-- ───────────────────────── Top bar ───────────────────────── -->
+  <header class="border-b bg-white">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex items-center gap-4">
+      <h1 class="text-base font-semibold tracking-tight">Inbox PII Scanner</h1>
+      <nav class="text-sm space-x-1">
+        <button class="px-3 py-1 rounded hover:bg-gray-100"
+                :class="view==='dashboard' ? 'bg-gray-200 font-medium' : ''"
+                @click="view='dashboard'">Dashboard</button>
+        <button class="px-3 py-1 rounded hover:bg-gray-100"
+                :class="view==='review' ? 'bg-gray-200 font-medium' : ''"
+                @click="startReview()">Review</button>
+      </nav>
+      <div class="flex-1"></div>
+      <span class="text-xs text-gray-500" x-show="stats">
+        <span x-text="stats?.scan?.total_flagged ?? 0"></span>
+        flagged of
+        <span x-text="stats?.scan?.total_messages_with_verdict ?? 0"></span>
+        scanned
+      </span>
+    </div>
+  </header>
+
+  <!-- Error banner -->
+  <div x-show="error" class="bg-red-50 border-b border-red-200 text-red-800 text-sm">
+    <div class="max-w-7xl mx-auto px-4 py-2 flex items-center justify-between">
+      <span x-text="error"></span>
+      <button class="underline" @click="error = null">dismiss</button>
+    </div>
+  </div>
+
+  <!-- ───────────────────────── Dashboard ───────────────────────── -->
+  <main x-show="view==='dashboard'" class="max-w-7xl mx-auto px-4 py-8 space-y-6">
+    <template x-if="!stats">
+      <div class="text-sm text-gray-500">Loading…</div>
+    </template>
+
+    <template x-if="stats">
+      <div class="grid md:grid-cols-2 gap-4">
+        <!-- Sync card -->
+        <section class="bg-white border rounded p-5">
+          <h2 class="font-semibold text-sm text-gray-500 uppercase tracking-wide mb-3">Sync</h2>
+          <dl class="grid grid-cols-2 gap-y-2 text-sm">
+            <dt class="text-gray-500">Last sync</dt>
+            <dd x-text="formatDate(stats.sync.last_sync_at) || '—'"></dd>
+            <dt class="text-gray-500">Status</dt>
+            <dd x-text="stats.sync.last_sync_status || '—'"></dd>
+            <dt class="text-gray-500">Messages</dt>
+            <dd x-text="stats.sync.total_messages.toLocaleString()"></dd>
+            <dt class="text-gray-500">Attachments downloaded</dt>
+            <dd>
+              <span x-text="stats.sync.total_attachments_downloaded.toLocaleString()"></span>
+              <span class="text-gray-400">
+                / <span x-text="stats.sync.total_attachments.toLocaleString()"></span>
+              </span>
+            </dd>
+            <dt class="text-gray-500">Total bytes on disk</dt>
+            <dd x-text="formatBytes(stats.sync.total_blob_bytes)"></dd>
+          </dl>
+        </section>
+
+        <!-- Scan card -->
+        <section class="bg-white border rounded p-5">
+          <h2 class="font-semibold text-sm text-gray-500 uppercase tracking-wide mb-3">Scan</h2>
+          <dl class="grid grid-cols-2 gap-y-2 text-sm">
+            <dt class="text-gray-500">Last scan</dt>
+            <dd x-text="formatDate(stats.scan.last_scan_at) || '—'"></dd>
+            <dt class="text-gray-500">Status</dt>
+            <dd x-text="stats.scan.last_scan_status || '—'"></dd>
+            <dt class="text-gray-500">Messages with verdict</dt>
+            <dd x-text="stats.scan.total_messages_with_verdict.toLocaleString()"></dd>
+            <dt class="text-gray-500">Flagged</dt>
+            <dd>
+              <span class="font-medium" x-text="stats.scan.total_flagged.toLocaleString()"></span>
+            </dd>
+            <dt class="text-gray-500">Total findings</dt>
+            <dd x-text="stats.scan.total_findings.toLocaleString()"></dd>
+          </dl>
+        </section>
+      </div>
+    </template>
+
+    <!-- By category -->
+    <template x-if="stats && Object.keys(stats?.scan?.by_top_category ?? {}).length">
+      <section class="bg-white border rounded p-5">
+        <h2 class="font-semibold text-sm text-gray-500 uppercase tracking-wide mb-3">
+          Flagged by top category
+        </h2>
+        <div class="flex flex-wrap gap-2">
+          <template x-for="cat in categoryOrder" :key="cat">
+            <template x-if="stats?.scan?.by_top_category?.[cat]">
+              <button class="px-3 py-1.5 rounded text-sm border hover:bg-gray-50"
+                      :class="categoryClass(cat)"
+                      @click="filter = cat; startReview()">
+                <span class="font-medium" x-text="categoryLabel(cat)"></span>
+                <span class="ml-1 text-gray-600"
+                      x-text="stats.scan.by_top_category[cat]"></span>
+              </button>
+            </template>
+          </template>
+        </div>
+      </section>
+    </template>
+
+    <!-- Start review -->
+    <section class="bg-white border rounded p-5 flex items-center justify-between">
+      <div>
+        <h2 class="font-semibold mb-1">Review flagged messages</h2>
+        <p class="text-sm text-gray-600">
+          Walk the flagged set one at a time. Use J/K to navigate, O to open
+          the current message in Gmail.
+        </p>
+      </div>
+      <button class="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300
+                     text-white px-4 py-2 rounded text-sm font-medium"
+              :disabled="!stats || stats.scan.total_flagged === 0"
+              @click="startReview()">
+        Start review →
+      </button>
+    </section>
+
+    <p class="text-xs text-gray-500">
+      Tip: <a class="underline hover:text-gray-700" href="/docs">/docs</a>
+      for the OpenAPI explorer.
+    </p>
+  </main>
+
+  <!-- ───────────────────────── Review ───────────────────────── -->
+  <main x-show="view==='review'" class="max-w-7xl mx-auto px-4 py-6">
+    <div class="grid grid-cols-1 md:grid-cols-[14rem_1fr] gap-6">
+
+      <!-- Sidebar filter -->
+      <aside class="space-y-5 text-sm">
+        <div>
+          <h3 class="font-semibold text-xs text-gray-500 uppercase tracking-wide mb-2">
+            Filter by category
+          </h3>
+          <ul class="space-y-1">
+            <template x-for="cat in ['all', ...categoryOrder]" :key="cat">
+              <li>
+                <label class="flex items-center gap-2 cursor-pointer hover:bg-white p-1 rounded">
+                  <input type="radio" name="category-filter"
+                         :value="cat" x-model="filter"
+                         @change="loadList()"
+                         class="text-blue-600" />
+                  <span x-text="cat === 'all' ? 'All flagged' : categoryLabel(cat)"></span>
+                  <span class="ml-auto text-xs text-gray-400"
+                        x-show="cat !== 'all' && stats?.scan?.by_top_category?.[cat]"
+                        x-text="stats?.scan?.by_top_category?.[cat]"></span>
+                </label>
+              </li>
+            </template>
+          </ul>
+        </div>
+
+        <div>
+          <h3 class="font-semibold text-xs text-gray-500 uppercase tracking-wide mb-2">
+            Sort
+          </h3>
+          <ul class="space-y-1">
+            <li>
+              <label class="flex items-center gap-2 cursor-pointer hover:bg-white p-1 rounded">
+                <input type="radio" name="sort" value="risk" x-model="sort" @change="loadList()" class="text-blue-600" />
+                Risk score (high → low)
+              </label>
+            </li>
+            <li>
+              <label class="flex items-center gap-2 cursor-pointer hover:bg-white p-1 rounded">
+                <input type="radio" name="sort" value="date" x-model="sort" @change="loadList()" class="text-blue-600" />
+                Date (newest → oldest)
+              </label>
+            </li>
+          </ul>
+        </div>
+
+        <div class="text-xs text-gray-500 leading-relaxed pt-2 border-t">
+          <strong class="text-gray-700">Shortcuts</strong><br />
+          <kbd class="bg-gray-200 px-1 rounded">J</kbd> next ·
+          <kbd class="bg-gray-200 px-1 rounded">K</kbd> prev<br />
+          <kbd class="bg-gray-200 px-1 rounded">O</kbd> open in Gmail<br />
+          <kbd class="bg-gray-200 px-1 rounded">Esc</kbd> dashboard
+        </div>
+      </aside>
+
+      <!-- Detail pane -->
+      <section>
+        <!-- Pager -->
+        <div class="flex items-center gap-3 mb-4">
+          <button class="px-3 py-1.5 rounded border bg-white hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed text-sm"
+                  :disabled="index <= 0 || loadingEmail"
+                  @click="prev()">← Prev</button>
+          <button class="px-3 py-1.5 rounded border bg-white hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed text-sm"
+                  :disabled="index >= list.length - 1 || loadingEmail"
+                  @click="next()">Next →</button>
+          <span class="text-sm text-gray-500" x-show="list.length">
+            <span x-text="index + 1"></span> of <span x-text="list.length"></span>
+            <span x-show="listTotal > list.length" class="text-gray-400">
+              (showing <span x-text="list.length"></span> of <span x-text="listTotal"></span>)
+            </span>
+          </span>
+          <div class="flex-1"></div>
+          <button class="px-3 py-1.5 rounded border bg-white hover:bg-gray-100 text-sm font-medium"
+                  :disabled="!currentEmail"
+                  @click="openInGmail()">Open in Gmail ↗</button>
+        </div>
+
+        <!-- Empty state -->
+        <div x-show="!loadingEmail && !loadingList && list.length === 0"
+             class="bg-white border rounded p-8 text-center text-sm text-gray-500">
+          No flagged messages match these filters.
+        </div>
+
+        <!-- Loading -->
+        <div x-show="loadingEmail || loadingList" class="text-sm text-gray-500">
+          Loading…
+        </div>
+
+        <!-- Email detail -->
+        <template x-if="currentEmail && !loadingEmail">
+          <article class="space-y-5">
+
+            <!-- Header card -->
+            <div class="bg-white border rounded p-5">
+              <div class="flex items-start gap-4">
+                <div class="flex-1 min-w-0">
+                  <div class="text-xs text-gray-500 mb-1">FROM</div>
+                  <div class="font-mono text-sm break-all" x-text="currentEmail.sender || '—'"></div>
+                  <div class="text-xs text-gray-500 mt-3 mb-1">SUBJECT</div>
+                  <div class="font-medium" x-text="currentEmail.subject || '(no subject)'"></div>
+                  <div class="text-xs text-gray-500 mt-3 mb-1">RECEIVED</div>
+                  <div class="text-sm" x-text="formatDate(currentEmail.received_at) || '—'"></div>
+                </div>
+                <div class="text-right space-y-2">
+                  <div>
+                    <span class="px-2 py-1 rounded text-xs font-medium"
+                          :class="riskClass(currentEmail.risk_score)">
+                      risk
+                      <span x-text="(currentEmail.risk_score ?? 0).toFixed(0)"></span>
+                    </span>
+                  </div>
+                  <div>
+                    <span class="px-2 py-1 rounded text-xs"
+                          :class="categoryClass(currentEmail.top_category)"
+                          x-text="categoryLabel(currentEmail.top_category) || '—'"></span>
+                  </div>
+                  <div class="flex flex-wrap justify-end gap-1 mt-2">
+                    <template x-for="[cat, n] in Object.entries(currentEmail.category_summary || {})" :key="cat">
+                      <span class="px-1.5 py-0.5 rounded text-xs"
+                            :class="categoryClass(cat)">
+                        <span x-text="categoryLabel(cat)"></span>
+                        <span class="text-gray-600">·<span x-text="n"></span></span>
+                      </span>
+                    </template>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Attachments -->
+            <div class="bg-white border rounded p-5">
+              <h3 class="font-semibold text-sm text-gray-500 uppercase tracking-wide mb-3">
+                Attachments (<span x-text="currentEmail.attachments.length"></span>)
+              </h3>
+              <ul class="divide-y">
+                <template x-for="att in currentEmail.attachments" :key="att.attachment_id">
+                  <li class="py-2 flex items-center gap-3 text-sm">
+                    <span class="font-mono truncate" x-text="att.filename || '(unnamed)'"></span>
+                    <span class="text-xs text-gray-500" x-text="att.mime_type || ''"></span>
+                    <span class="text-xs text-gray-500"
+                          x-text="formatBytes(att.size_bytes ?? 0)"></span>
+                    <div class="flex-1"></div>
+                    <span class="text-xs px-2 py-0.5 rounded"
+                          :class="extractionStatusClass(att.extraction_status, att.sync_status)"
+                          x-text="extractionStatusLabel(att.extraction_status, att.sync_status)"></span>
+                    <span class="text-xs text-gray-400"
+                          x-show="att.findings && att.findings.length">
+                      <span x-text="att.findings.length"></span> findings
+                    </span>
+                  </li>
+                </template>
+              </ul>
+              <div class="mt-2 text-xs text-amber-700"
+                   x-show="hasUnparseable">
+                ⚠ Some attachments couldn't be parsed — review them manually in Gmail.
+              </div>
+            </div>
+
+            <!-- Findings grouped by category -->
+            <div class="bg-white border rounded p-5">
+              <h3 class="font-semibold text-sm text-gray-500 uppercase tracking-wide mb-3">
+                Findings
+              </h3>
+              <template x-if="totalFindings === 0">
+                <div class="text-sm text-gray-500">
+                  No findings. (Message was flagged from a prior scan; current detector
+                  thresholds may have moved.)
+                </div>
+              </template>
+
+              <div class="space-y-5">
+                <template x-for="cat in categoriesPresent" :key="cat">
+                  <div>
+                    <div class="flex items-center gap-2 mb-2">
+                      <span class="px-2 py-0.5 rounded text-xs font-medium"
+                            :class="categoryClass(cat)"
+                            x-text="categoryLabel(cat)"></span>
+                      <span class="text-xs text-gray-500"
+                            x-text="`${(groupedFindings[cat]?.length ?? 0)} finding${(groupedFindings[cat]?.length ?? 0)===1?'':'s'}`"></span>
+                    </div>
+                    <ul class="space-y-3">
+                      <template x-for="(f, i) in (groupedFindings[cat] ?? [])" :key="cat + ':' + i">
+                        <li class="border-l-2 border-gray-200 pl-3">
+                          <div class="flex items-center gap-2 text-xs text-gray-500 mb-1">
+                            <span class="font-mono" x-text="f.detector"></span>
+                            <span>·</span>
+                            <span class="font-mono" x-text="f.subtype"></span>
+                            <span>·</span>
+                            <span x-text="`${(f.confidence ?? 0).toFixed(2)}`"></span>
+                            <span>·</span>
+                            <span class="truncate" x-text="f._attachment_filename"></span>
+                          </div>
+                          <div class="text-sm font-mono whitespace-pre-wrap break-words leading-relaxed
+                                      bg-gray-50 border rounded p-2">
+                            <template x-if="f.snippet">
+                              <span>
+                                <span class="text-gray-500" x-text="snippetParts(f).pre"></span><mark class="finding-hit" x-text="snippetParts(f).hit"></mark><span class="text-gray-500" x-text="snippetParts(f).post"></span>
+                              </span>
+                            </template>
+                            <template x-if="!f.snippet && f.span_text">
+                              <mark class="finding-hit" x-text="f.span_text"></mark>
+                            </template>
+                          </div>
+                        </li>
+                      </template>
+                    </ul>
+                  </div>
+                </template>
+              </div>
+            </div>
+
+          </article>
+        </template>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    function app() {
+      const CATEGORY_ORDER = [
+        'gov_id', 'credentials', 'financial', 'medical',
+        'tax', 'legal', 'other_pii',
+      ];
+      const CATEGORY_LABELS = {
+        gov_id:      'Gov ID',
+        credentials: 'Credentials',
+        financial:   'Financial',
+        medical:     'Medical',
+        tax:         'Tax',
+        legal:       'Legal',
+        other_pii:   'Other PII',
+      };
+      const CATEGORY_CLASSES = {
+        gov_id:      'bg-red-100 text-red-800 border-red-200',
+        credentials: 'bg-red-100 text-red-800 border-red-200',
+        financial:   'bg-orange-100 text-orange-800 border-orange-200',
+        medical:     'bg-orange-100 text-orange-800 border-orange-200',
+        tax:         'bg-yellow-100 text-yellow-800 border-yellow-200',
+        legal:       'bg-yellow-100 text-yellow-800 border-yellow-200',
+        other_pii:   'bg-gray-100 text-gray-700 border-gray-200',
+      };
+
+      return {
+        view: 'dashboard',
+        stats: null,
+        list: [],
+        listTotal: 0,
+        index: 0,
+        currentEmail: null,
+        loadingList: false,
+        loadingEmail: false,
+        filter: 'all',
+        sort: 'risk',
+        error: null,
+        categoryOrder: CATEGORY_ORDER.filter(c => c !== 'other_pii'),
+
+        async init() {
+          await this.loadStats();
+        },
+
+        async loadStats() {
+          try {
+            const r = await fetch('/api/stats');
+            if (!r.ok) throw new Error(`/api/stats → ${r.status}`);
+            this.stats = await r.json();
+          } catch (e) {
+            this.error = `Failed to load stats: ${e.message}`;
+          }
+        },
+
+        async startReview() {
+          this.view = 'review';
+          if (this.list.length === 0) await this.loadList();
+        },
+
+        async loadList() {
+          this.loadingList = true;
+          try {
+            const params = new URLSearchParams({ limit: '100', sort: this.sort });
+            if (this.filter !== 'all') params.set('category', this.filter);
+            const r = await fetch(`/api/flagged?${params}`);
+            if (!r.ok) throw new Error(`/api/flagged → ${r.status}`);
+            const data = await r.json();
+            this.list = data.items;
+            this.listTotal = data.total;
+            this.index = 0;
+            if (this.list.length > 0) {
+              await this.loadEmail(this.list[0].message_id);
+            } else {
+              this.currentEmail = null;
+            }
+          } catch (e) {
+            this.error = `Failed to load flagged list: ${e.message}`;
+          } finally {
+            this.loadingList = false;
+          }
+        },
+
+        async loadEmail(mid) {
+          this.loadingEmail = true;
+          try {
+            const r = await fetch(`/api/email/${encodeURIComponent(mid)}`);
+            if (!r.ok) throw new Error(`/api/email/${mid} → ${r.status}`);
+            this.currentEmail = await r.json();
+          } catch (e) {
+            this.error = `Failed to load email: ${e.message}`;
+            this.currentEmail = null;
+          } finally {
+            this.loadingEmail = false;
+          }
+        },
+
+        next() {
+          if (this.index < this.list.length - 1 && !this.loadingEmail) {
+            this.index++;
+            this.loadEmail(this.list[this.index].message_id);
+          }
+        },
+        prev() {
+          if (this.index > 0 && !this.loadingEmail) {
+            this.index--;
+            this.loadEmail(this.list[this.index].message_id);
+          }
+        },
+        openInGmail() {
+          if (this.currentEmail?.gmail_url) {
+            window.open(this.currentEmail.gmail_url, '_blank', 'noopener');
+          }
+        },
+
+        handleKey(e) {
+          // Don't fight form inputs.
+          const tag = (e.target?.tagName || '').toUpperCase();
+          if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag)) return;
+          if (e.metaKey || e.ctrlKey || e.altKey) return;
+          if (e.key === 'Escape') {
+            this.view = 'dashboard';
+            return;
+          }
+          if (this.view !== 'review') return;
+          if (e.key === 'j' || e.key === 'ArrowRight') { e.preventDefault(); this.next(); }
+          else if (e.key === 'k' || e.key === 'ArrowLeft') { e.preventDefault(); this.prev(); }
+          else if (e.key === 'o') { e.preventDefault(); this.openInGmail(); }
+        },
+
+        // ---------- view helpers ----------
+
+        formatDate(s) {
+          if (!s) return '';
+          try {
+            return new Date(s).toLocaleString();
+          } catch { return s; }
+        },
+        formatBytes(n) {
+          if (!Number.isFinite(n)) return '—';
+          if (n < 1024) return `${n} B`;
+          if (n < 1024 * 1024) return `${(n/1024).toFixed(1)} KB`;
+          if (n < 1024 * 1024 * 1024) return `${(n/1024/1024).toFixed(1)} MB`;
+          return `${(n/1024/1024/1024).toFixed(2)} GB`;
+        },
+        categoryLabel(cat)  { return CATEGORY_LABELS[cat] || cat || '—'; },
+        categoryClass(cat)  { return CATEGORY_CLASSES[cat] || CATEGORY_CLASSES.other_pii; },
+        riskClass(score) {
+          const s = score ?? 0;
+          if (s >= 20) return 'bg-red-100 text-red-800';
+          if (s >= 10) return 'bg-orange-100 text-orange-800';
+          if (s > 0)   return 'bg-yellow-100 text-yellow-800';
+          return 'bg-gray-100 text-gray-700';
+        },
+        extractionStatusLabel(ext, sync) {
+          if (ext === 'extracted')   return 'extracted';
+          if (ext === 'unparseable') return 'unparseable';
+          if (sync === 'skipped_filter')    return 'skipped (filter)';
+          if (sync === 'skipped_too_large') return 'skipped (too large)';
+          if (sync === 'sync_error')        return 'sync error';
+          if (sync === 'pending')           return 'not extracted';
+          return ext || sync || '?';
+        },
+        extractionStatusClass(ext, sync) {
+          if (ext === 'extracted')   return 'bg-green-100 text-green-800';
+          if (ext === 'unparseable') return 'bg-amber-100 text-amber-800';
+          if (sync && sync.startsWith('skipped')) return 'bg-gray-100 text-gray-600';
+          return 'bg-gray-100 text-gray-700';
+        },
+
+        // ---------- findings rollup (recomputed per render) ----------
+
+        get groupedFindings() {
+          const groups = {};
+          if (!this.currentEmail) return groups;
+          for (const att of this.currentEmail.attachments || []) {
+            for (const f of att.findings || []) {
+              (groups[f.category] ||= []).push({
+                ...f,
+                _attachment_filename: att.filename || att.attachment_id,
+              });
+            }
+          }
+          return groups;
+        },
+        get categoriesPresent() {
+          // Show the flag-eligible categories first (in canonical order),
+          // then other_pii at the bottom — that matches how a reviewer
+          // typically scans: real-PII first, then context.
+          const present = Object.keys(this.groupedFindings);
+          return CATEGORY_ORDER.filter(c => present.includes(c));
+        },
+        get totalFindings() {
+          return Object.values(this.groupedFindings).reduce((n, arr) => n + arr.length, 0);
+        },
+        get hasUnparseable() {
+          return (this.currentEmail?.attachments || [])
+            .some(a => a.extraction_status === 'unparseable');
+        },
+
+        snippetParts(f) {
+          const snip = f.snippet || '';
+          const s = Math.max(0, Math.min(snip.length, f.snippet_relative_start ?? 0));
+          const e = Math.max(s, Math.min(snip.length, f.snippet_relative_end ?? snip.length));
+          return {
+            pre:  snip.slice(0, s),
+            hit:  snip.slice(s, e),
+            post: snip.slice(e),
+          };
+        },
+      };
+    }
+  </script>
+</body>
+</html>

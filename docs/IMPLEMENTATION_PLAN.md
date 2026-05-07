@@ -648,7 +648,7 @@ Ship in this order so each step produces something testable:
 5. **Detection layer** ✅ — Presidio + Privacy Filter + custom regex, categorizer, verdict computation. `inbox-scanner scan --only-detect` works on cached extracted text.
 6. **Full scan pipeline** ✅ — `inbox-scanner scan` runs extract + detect end to end. Idempotence verified on the dev corpus: the meaningful payload (attachment-id + category + subtype + detector + span boundaries + verdict tuple set) is bit-for-bit identical across two consecutive runs.
 7. **FastAPI server + endpoints** ✅ — `inbox-scanner serve` brings up the read-only API at `127.0.0.1:8765`. Endpoints: `/api/stats`, `/api/flagged?cursor=&limit=&category=&sort=`, `/api/email/{message_id}?snippet_window=N`. `gmail_url` constructed for every flagged item. Bind warning fires loudly if `--host` is overridden.
-8. **Frontend** — single-page Alpine.js review UI. Hook up "Open in Gmail" buttons.
+8. **Frontend** ✅ — single-file `inbox_scanner/frontend/index.html` (Alpine.js + Tailwind via CDN). Dashboard with sync/scan stats and by-category breakdown; review pane with sidebar filter (category + sort), pager, message header, attachments list, and findings grouped by category with snippet highlights using the API's `snippet_relative_start/end`. Keyboard shortcuts: J/K to navigate, O to open in Gmail, Esc to dashboard. Browser-tested via Playwright.
 9. **README** — installation, OAuth setup, sync vs scan workflow, how to interpret results, security notes about the data directory.
 10. **Polish** — progress bars during sync and scan, status command, reset command, Ctrl-C handling.
 
