@@ -176,8 +176,8 @@ Key facts:
 
 ## Where deltas from the plan live
 
-[`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) is preserved as the
-original spec. The build diverged in three places of note; each has its
+[`archives/IMPLEMENTATION_PLAN.md`](archives/IMPLEMENTATION_PLAN.md)
+is preserved as the original spec. The build diverged in three places of note; each has its
 own ADR:
 
 | Plan said | Built as | ADR |

@@ -614,14 +614,6 @@ def _execute_reset(
     return removed
 
 
-def _not_implemented(name: str) -> int:
-    console.print(
-        f"[yellow]`inbox-scanner {name}` is not implemented yet.[/yellow] "
-        "See docs/IMPLEMENTATION_PLAN.md for build status."
-    )
-    return 1
-
-
 @contextmanager
 def _quiet_console_logging() -> Iterator[None]:
     """Lift the stderr StreamHandler to WARNING for the duration.

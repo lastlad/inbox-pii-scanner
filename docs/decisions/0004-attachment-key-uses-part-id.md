@@ -1,7 +1,7 @@
 # 0004 — Composite primary key on `attachments` uses `part_id`
 
 **Status:** Accepted — supersedes the original schema in
-[plan §"Database schema"](../IMPLEMENTATION_PLAN.md#database-schema)
+[plan §"Database schema"](../archives/IMPLEMENTATION_PLAN.md#database-schema)
 **Date:** 2026-04-27
 
 ## Context

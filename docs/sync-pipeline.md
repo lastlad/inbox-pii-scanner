@@ -107,7 +107,7 @@ client.get_message(message_id)  # format='full'
 `format='full'` is the only format that returns the `parts` tree we
 need. `format='metadata'` was attempted in step 2 of the build but
 turned out to strip parts — see [the build's first bug
-fix](../docs/IMPLEMENTATION_PLAN.md) for context. Costs 5 quota units
+fix](archives/IMPLEMENTATION_PLAN.md) for context. Costs 5 quota units
 per call.
 
 #### 3b. Walk the MIME tree and apply skip filters

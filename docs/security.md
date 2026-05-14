@@ -94,7 +94,7 @@ The data dir contains:
 - Your OAuth refresh token
 
 **There is no encryption-at-rest in v1.** SQLCipher is in the [v2
-backlog](IMPLEMENTATION_PLAN.md#out-of-scope-for-v1-captured-for-v2-backlog).
+backlog](archives/IMPLEMENTATION_PLAN.md#out-of-scope-for-v1-captured-for-v2-backlog).
 The README and CLAUDE.md both call this out and recommend FileVault
 (macOS full-disk encryption), which is enabled by default on most
 modern Macs.

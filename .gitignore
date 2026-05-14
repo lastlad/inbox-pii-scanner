@@ -34,3 +34,8 @@ build/
 !docs/**/*.png
 !docs/**/*.jpg
 !docs/**/*.jpeg
+
+# Exported Claude Code conversation transcripts. Kept on disk under
+# docs/archives/ for personal reference; never committed (they contain
+# real PII from the dev corpus that surfaced during development).
+docs/archives/cc-conversations-*.txt

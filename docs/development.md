@@ -39,7 +39,7 @@ past it, something is off.
 | `alembic/` | Database migrations |
 | `tests/` | Pytest suite |
 | `docs/` | These reference docs |
-| `docs/IMPLEMENTATION_PLAN.md` | Historical v1 spec (don't edit) |
+| `docs/archives/IMPLEMENTATION_PLAN.md` | Historical v1 spec (don't edit) |
 | `docs/decisions/` | ADRs (one file per major decision) |
 | `README.md` | User-facing setup walkthrough |
 | `CLAUDE.md` | AI-agent context |
@@ -256,7 +256,7 @@ The current set:
 
 There are no releases yet. Versioning kicks in when we publish a
 wheel. v2 backlog has the polish items
-([`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md)).
+([`archives/IMPLEMENTATION_PLAN.md`](archives/IMPLEMENTATION_PLAN.md)).
 
 ## See also
 

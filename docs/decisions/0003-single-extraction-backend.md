@@ -1,8 +1,8 @@
 # 0003 — Collapse Docling + Qwen-VL to Docling-only
 
 **Status:** Accepted — supersedes
-[plan §"Tech stack"](../IMPLEMENTATION_PLAN.md#tech-stack) and
-[plan §"5. Qwen2.5-VL extractor"](../IMPLEMENTATION_PLAN.md)
+[plan §"Tech stack"](../archives/IMPLEMENTATION_PLAN.md#tech-stack) and
+[plan §"5. Qwen2.5-VL extractor"](../archives/IMPLEMENTATION_PLAN.md)
 **Date:** 2026-04-29
 
 ## Context
@@ -89,7 +89,7 @@ Docling's own `do_picture_description=True`, which loads SmolVLM
   takes `"docling"` or `"unparseable"`.
 - `inbox_scanner/config.py::ExtractionConfig` — vlm_* fields removed;
   one `extract_concurrency` knob remains.
-- Plan revision note at the top of `docs/IMPLEMENTATION_PLAN.md`.
+- Plan revision note at the top of `docs/archives/IMPLEMENTATION_PLAN.md`.
 
 ## Alternatives considered
 

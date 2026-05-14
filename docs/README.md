@@ -50,11 +50,11 @@ Important design decisions are captured as [ADRs](decisions/) so the
 
 ## Historical
 
-- [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) — the original v1
-  spec, including the build order and v2 backlog. **Preserved
-  verbatim** for historical context. Where the build diverged from the
-  plan, the relevant ADR captures the *why*. The plan still contains
-  the canonical v2 wishlist at the bottom.
+- [`archives/IMPLEMENTATION_PLAN.md`](archives/IMPLEMENTATION_PLAN.md)
+  — the original v1 spec, including the build order and v2 backlog.
+  **Preserved verbatim** for historical context. Where the build
+  diverged from the plan, the relevant ADR captures the *why*. The
+  plan still contains the canonical v2 wishlist at the bottom.
 
 ## Style
 

@@ -11,7 +11,7 @@ Local-first, **strictly read-only** Gmail PII scanner. Two-phase design:
 
 `inbox-scanner serve` exposes a read-only FastAPI on `127.0.0.1:8765` with an Alpine.js review UI at `/`.
 
-**`docs/IMPLEMENTATION_PLAN.md` is the authoritative spec** — data model, module structure, detector list, build-order, v2 backlog. Read it before making non-trivial changes; update it in the same change if you diverge.
+**`docs/archives/IMPLEMENTATION_PLAN.md` is the authoritative spec** — data model, module structure, detector list, build-order, v2 backlog. Read it before making non-trivial changes; update it in the same change if you diverge.
 
 ## Repository status
 

@@ -18,7 +18,7 @@ Write one when a decision:
 
 - changes a public surface (CLI flag, API endpoint, DB schema), or
 - changes a load-bearing constraint listed in [`../../CLAUDE.md`](../../CLAUDE.md), or
-- supersedes something the original [`../IMPLEMENTATION_PLAN.md`](../IMPLEMENTATION_PLAN.md) specified, or
+- supersedes something the original [`../archives/IMPLEMENTATION_PLAN.md`](../archives/IMPLEMENTATION_PLAN.md) specified, or
 - you'd want to leave a note for someone six months from now about
   *why* a thing is the way it is.
 
