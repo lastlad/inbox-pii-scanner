@@ -58,7 +58,7 @@ The sync/scan split is the single most important design decision. Don't collapse
 - `gmail/` — only touched during sync. Don't import from it elsewhere.
 - `extraction/router.py` — single mime-allowlist decision: Docling or `unparseable`. PDFs are not pre-classified; Docling auto-OCRs scanned ones via `do_ocr=True`.
 - `extraction/docling_extractor.py` — singleton `DocumentConverter`, `DocumentStream(name=, stream=BytesIO)` API, returns markdown via `result.document.export_to_markdown()`.
-- `detection/{presidio,privacy_filter,custom_regex}_detector.py` — three independent detectors returning `Finding` dataclasses.
+- `detection/{presidio,privacy_filter}_detector.py` — two independent detectors returning `Finding` dataclasses. A third `custom_regex` detector existed in earlier iterations but was retired during v1 simplification; see [ADR 0005](docs/decisions/0005-three-detector-pipeline.md) for the trail.
 - `detection/categorizer.py` — single source of truth for `(detector, subtype) → (user_category, criticality_tier)` in the `_REGISTRY` dict (values are `_Entry` NamedTuples). Adding a new detector subtype means adding **one** row; a coverage test enforces that both fields are valid. The tier (`critical | standard | all`) drives the `--profile` filter — see `Profile` in `detection/types.py`.
 - `pipelines/sync_pipeline.py` and `pipelines/scan_pipeline.py` — orchestrators, one per phase, share DB/blob/config but are otherwise independent.
 

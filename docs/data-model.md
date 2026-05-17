@@ -180,8 +180,8 @@ affected attachment and writes the new ones. Tracked through
 | `scan_id` | INT FK → scans | which scan produced it |
 | `attachment_id` | TEXT FK → attachments | which attachment it was found on |
 | `category` | TEXT | `gov_id` / `financial` / `tax` / `medical` / `credentials` / `legal` / `other_pii` |
-| `subtype` | TEXT | detector-native label (`US_SSN`, `private_address`, `tax_form`, …) |
-| `detector` | TEXT | `presidio` / `privacy_filter` / `custom_regex` |
+| `subtype` | TEXT | detector-native label (`US_SSN`, `private_address`, …) |
+| `detector` | TEXT | `presidio` / `privacy_filter` |
 | `span_text` | TEXT | the matched text (capped at 500 chars) |
 | `span_start`, `span_end` | INT | character offsets into the extracted markdown |
 | `confidence` | REAL | 0..1 (length-weighted for merged Privacy Filter spans) |
@@ -231,7 +231,7 @@ new `scan_id` and timestamps). The path:
 3. **Stage B — detect:** for each attachment with
    `extraction_status='extracted'`:
    1. `DELETE FROM detections WHERE attachment_id = ?`
-   2. Run all three detectors, insert new rows.
+   2. Run both detectors, insert new rows.
 4. For every affected message, aggregate the latest detections and
    upsert `message_verdicts`.
 5. Update the `scans` row to `status='completed'`.

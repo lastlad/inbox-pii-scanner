@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from inbox_scanner.detection import (
     categorizer,
-    custom_regex,
     presidio_detector,
     privacy_filter_detector,
 )
@@ -21,13 +20,13 @@ def run(
     privacy_filter_threshold: float = 0.6,
     profile: Profile = Profile.CRITICAL,
 ) -> list[Detection]:
-    """Run Presidio + Privacy Filter + custom regex on ``text`` and return
-    categorized detections filtered to ``profile``.
+    """Run Presidio + Privacy Filter on ``text`` and return categorized
+    detections filtered to ``profile``.
 
-    Each detector still runs in full — filtering happens in the
-    categorizer. The cost saving from a tighter profile is therefore
-    modest (only DB writes are skipped), but the signal-to-noise
-    improvement for the user is significant.
+    Both detectors run in full — filtering happens in the categorizer.
+    The cost saving from a tighter profile is therefore modest (only DB
+    writes are skipped), but the signal-to-noise improvement for the
+    user is significant.
     """
     findings: list[Finding] = []
     findings.extend(
@@ -38,5 +37,4 @@ def run(
             text, score_threshold=privacy_filter_threshold
         )
     )
-    findings.extend(custom_regex.detect(text))
     return categorizer.categorize_all(findings, profile)

@@ -15,10 +15,10 @@ from enum import Enum
 class Finding:
     """One raw match from a single detector.
 
-    ``detector`` is the source name (``"presidio"``, ``"privacy_filter"``,
-    or ``"custom_regex"``). ``subtype`` is the detector-native label
-    (e.g. ``"US_SSN"``, ``"private_address"``, ``"tax_form"``) — the
-    categorizer maps these to user-facing categories.
+    ``detector`` is the source name (``"presidio"`` or
+    ``"privacy_filter"``). ``subtype`` is the detector-native label
+    (e.g. ``"US_SSN"``, ``"private_address"``) — the categorizer maps
+    these to user-facing categories.
     """
 
     detector: str
@@ -63,29 +63,29 @@ class Profile(str, Enum):
     """How aggressive should detection be?
 
     ``critical`` — only ever-flag-this-class entities (SSN, passport,
-    credit card, IBAN, US bank, ITIN, driver's license, secret, BIP-39
-    mnemonic). The default. Catches catastrophic-leak PII; filters out
-    sensitive-but-recoverable and informational findings entirely.
+    credit card, IBAN, US bank, ITIN, driver's license, secret). The
+    default. Catches catastrophic-leak PII and nothing else.
 
-    ``standard`` — adds ``account_number`` (Privacy Filter's broad-net
-    label) and ``tax_form`` (custom regex). Useful when you want to
-    flag tax-document emails and broadly-shaped account/order numbers
-    even when no SSN/CC was directly detected.
+    ``all`` — additionally records Privacy Filter's broader catches:
+    ``account_number`` (still flags the message via the financial
+    category) plus the informational ``other_pii`` entities (names,
+    addresses, emails, phones, URLs, dates) which surface as
+    context but don't flag on their own.
 
-    ``all`` — additionally records the informational ``other_pii``
-    entities (names, addresses, emails, phones, URLs, dates) so the UI
-    can show them as context. These don't flag a message on their own
-    but contribute to ``category_summary``.
+    An intermediate ``standard`` profile was dropped during the v1
+    simplification: with ``tax_form`` removed it would have differed
+    from ``all`` only by which informational entities got recorded,
+    and the flagged-set was identical. See
+    docs/decisions/0005-three-detector-pipeline.md.
     """
 
     CRITICAL = "critical"
-    STANDARD = "standard"
     ALL = "all"
 
 
 # Lower index = more selective. ``profile_includes_tier`` is the only
 # function that should consult this — callers should use the helper.
-_TIER_ORDER: tuple[str, ...] = ("critical", "standard", "all")
+_TIER_ORDER: tuple[str, ...] = ("critical", "all")
 
 
 def profile_includes_tier(profile: Profile, tier: str) -> bool:

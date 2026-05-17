@@ -64,20 +64,20 @@ uv run pytest -k "test_default_reset"       # one test by name pattern
 ```
 tests/
 ├── test_blobs.py                  # content-addressed blob storage
-├── test_categorizer.py            # detection categorization + verdict math
-├── test_custom_regex.py           # the 8 US-specific regex patterns
+├── test_categorizer.py            # detection categorization + verdict math + profile filter
 ├── test_gmail_parsing.py          # pure helpers: header / date / MIME-tree walker
 ├── test_privacy_filter_merge.py   # BIE→S span merging
 ├── test_rate_limiter.py           # TokenBucket pacing under concurrency
 ├── test_reset.py                  # reset command (path planning + execution)
 ├── test_router.py                 # extraction mime-allowlist routing
 ├── test_server.py                 # FastAPI endpoints via TestClient
-└── test_sync_classifier.py        # mime/size skip-filter rules
+├── test_sync_classifier.py        # mime/size skip-filter rules
+└── test_sync_query.py             # Gmail query string + MailboxScope
 ```
 
-114 tests total; ~4 s wall-clock. Heavy deps (Presidio, Privacy
-Filter) are loaded lazily via singletons inside the production code,
-and tests stay fast because they don't exercise those code paths
+Tests are fast (a few seconds). Heavy deps (Presidio, Privacy Filter)
+are loaded lazily via singletons inside the production code, and
+tests stay fast because they don't exercise those code paths
 themselves — they test pure helpers + integration via TestClient.
 
 ### What to test (and what not to)
@@ -85,10 +85,9 @@ themselves — they test pure helpers + integration via TestClient.
 **Test:**
 
 - Pure helpers in `extraction/router.py`, `detection/categorizer.py`,
-  `detection/custom_regex.py`, `gmail/client.py`,
-  `gmail/rate_limiter.py`, `gmail/sync.py::_classify_attachment`,
-  `blobs.py`, `cli.py::_planned_reset_targets` /
-  `_execute_reset`.
+  `gmail/client.py`, `gmail/rate_limiter.py`,
+  `gmail/sync.py::_classify_attachment` and `_build_query`,
+  `blobs.py`, `cli.py::_planned_reset_targets` / `_execute_reset`.
 - FastAPI endpoints against `TestClient` with a seeded sqlite tmpdir
   (see `tests/test_server.py::_seed_basic_corpus` for the canonical
   pattern).

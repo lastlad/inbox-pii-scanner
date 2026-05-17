@@ -187,11 +187,11 @@ def scan(
             help=(
                 "Detection filter. 'critical' (default) reports only "
                 "irreversible-harm entities (SSN, passport, credit card, "
-                "IBAN, US bank, ITIN, driver's license, secret, BIP-39 "
-                "mnemonic). 'standard' adds account_number and tax_form. "
-                "'all' additionally records informational context "
-                "(names, addresses, emails, phones, URLs, dates). "
-                "Detection still runs all detectors in full — this "
+                "IBAN, US bank, ITIN, driver's license, secret). 'all' "
+                "additionally records Privacy Filter's broader catches: "
+                "account_number (still flags the message) plus "
+                "informational names, addresses, emails, phones, URLs, "
+                "and dates. Detection always runs in full — this "
                 "filters what gets persisted. Re-scan to switch profiles."
             ),
         ),
@@ -200,9 +200,9 @@ def scan(
     """Phase 2: extract + detect on locally cached attachments. No Gmail access.
 
     By default reports only irreversible-harm PII (``--profile critical``).
-    Use ``--profile standard`` to also flag broader account-shaped numbers
-    and tax-form documents, or ``--profile all`` to also surface
-    informational context (names, addresses, emails, etc.).
+    Use ``--profile all`` to also record Privacy Filter's broader catches —
+    ``account_number`` (still flags the message) plus informational names,
+    addresses, emails, phones, URLs, and dates.
     """
     if only_extract and only_detect:
         raise typer.BadParameter("--only-extract and --only-detect are mutually exclusive.")

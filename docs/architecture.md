@@ -78,12 +78,11 @@ inbox_scanner/
 │   └── docling_extractor.py       # Singleton DocumentConverter, returns markdown
 │
 ├── detection/                     # Phase 2 stage B
-│   ├── types.py                   # Finding / Detection dataclasses, RISK_WEIGHTS
+│   ├── types.py                   # Finding / Detection dataclasses, Profile enum, RISK_WEIGHTS
 │   ├── presidio_detector.py       # Pattern PII (CREDIT_CARD, US_SSN, etc.)
 │   ├── privacy_filter_detector.py # Contextual PII via openai/privacy-filter
-│   ├── custom_regex.py            # US tax forms, medical IDs, credentials, legal kws
-│   ├── categorizer.py             # (detector, subtype) → user_category + verdict math
-│   └── runner.py                  # Orchestrates the three detectors per attachment
+│   ├── categorizer.py             # _REGISTRY: (detector, subtype) → (category, tier); verdict math
+│   └── runner.py                  # Orchestrates both detectors per attachment
 │
 ├── pipelines/
 │   ├── sync_pipeline.py           # Re-exports gmail.sync.run_sync (entry point)

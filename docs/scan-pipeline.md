@@ -8,8 +8,9 @@ Two stages, each independently runnable:
 
 - **Stage A — Extract.** Reads downloaded blobs, runs Docling, writes
   cached markdown.
-- **Stage B — Detect.** Reads cached markdown, runs three detectors,
-  writes `detections` and `message_verdicts`.
+- **Stage B — Detect.** Reads cached markdown, runs both detectors
+  (Presidio + Privacy Filter), writes `detections` and
+  `message_verdicts`.
 
 Skipped via `--only-extract` or `--only-detect`. Both run by default.
 
@@ -130,10 +131,8 @@ flowchart TD
     A[attachment.extraction_status='extracted'] --> R[detection.runner.run]
     R --> P[presidio]
     R --> PF[privacy_filter]
-    R --> CR[custom_regex]
     P --> Cat[categorizer]
     PF --> Cat
-    CR --> Cat
     Cat --> Findings[list&lt;Detection&gt;]
     Findings --> DBClear[DELETE FROM detections<br/>WHERE attachment_id=?]
     DBClear --> DBInsert[INSERT new detection rows]
@@ -141,11 +140,13 @@ flowchart TD
     Affected --> V[compute_and_persist_verdicts:<br/>aggregate by message,<br/>upsert message_verdicts]
 ```
 
-### The three detectors
+### The two detectors
 
 [`detection/runner.py::run`](../inbox_scanner/detection/runner.py)
-calls all three sequentially per text input. Each returns `Finding`
-dataclasses; the categorizer maps them to `Detection`s.
+calls both sequentially per text input. Each returns `Finding`
+dataclasses; the categorizer maps them to `Detection`s. An earlier
+``custom_regex`` detector existed but was retired during v1
+simplification — see [ADR 0005](decisions/0005-three-detector-pipeline.md).
 
 #### Presidio
 
@@ -198,40 +199,25 @@ consecutive same-detector + same-subtype findings with `≤ 1` char gap,
 length-weighted mean confidence. The aggregate finding count on the
 dev corpus dropped from 118 → 61 with this fix.
 
-#### Custom regex (US-specific)
-
-[`custom_regex.py`](../inbox_scanner/detection/custom_regex.py). Two
-patterns — each provides signal neither Presidio nor Privacy Filter
-can:
-
-| subtype | example match | fixed confidence | category | why kept |
-|---|---|---|---|---|
-| `tax_form` | `W-2`, `1099-NEC`, `Form 8889`, `Schedule C` | 0.85 | `tax` | Document-type detector. Catches blank/template tax forms that contain no fillable PII for the models to find (the dev-corpus HSA Withdrawal Form was caught only by this) |
-| `mnemonic_phrase` | 12 or 24 lowercase BIP-39-shaped words | 0.95 | `credentials` | Crypto wallet seed phrases look like ordinary English wordlists; the model's `secret` label doesn't generalise to them. Catastrophic loss class with very low FPR thanks to the count-and-shape constraint |
-
-Earlier iterations also shipped `medical_record_number`,
-`insurance_id`, `medical_keyword`, `credential_kv`, `recovery_code`,
-and `legal_keyword`. Those were dropped in the v1 simplification —
-either they duplicated Privacy Filter's `secret` / `account_number`
-labels at lower precision, or they were bare keyword spotters too
-imprecise to be actionable. See custom_regex.py's module docstring
-for the full history. The `medical` and `legal` user categories were
-removed at the same time (no remaining feeder) — re-add them to
-`FLAGGABLE_CATEGORIES` + `RISK_WEIGHTS` + the categorizer's registry
-if you ship a detector for either.
-
 ### Detection profile
 
 The categorizer applies a second filter on top of the
 `(detector, subtype) → category` map: a **criticality tier** that the
-user picks per scan via `--profile critical|standard|all`. Three tiers,
-each subsumes the previous:
+user picks per scan via `--profile critical|all`. Two tiers, each
+subsumes the previous:
 
 | Tier | Entities | When to use |
 |---|---|---|
-| `critical` (default) | Presidio: US_SSN, US_PASSPORT, US_DRIVER_LICENSE, US_ITIN, CREDIT_CARD, IBAN_CODE, US_BANK_NUMBER. Privacy Filter: `secret`. Custom regex: `mnemonic_phrase` | Default — irreversible-harm class only |
-| `standard` | Above + Privacy Filter `account_number` + custom regex `tax_form` | Cast a wider net; catches account-shaped numbers (student IDs, order IDs, tracking #s) and tax-form documents |
-| `all` | Above + all Privacy Filter `private_*` and Presidio `EMAIL_ADDRESS` / `PHONE_NUMBER` | Surfaces informational context (names, addresses, emails, phones, URLs, dates); these don't flag on their own but contribute to `category_summary` |
+| `critical` (default) | Presidio: US_SSN, US_PASSPORT, US_DRIVER_LICENSE, US_ITIN, CREDIT_CARD, IBAN_CODE, US_BANK_NUMBER. Privacy Filter: `secret` | Default — irreversible-harm class only |
+| `all` | Above + Privacy Filter `account_number` (still flags via the financial category) + the informational `other_pii` entities: Presidio `EMAIL_ADDRESS` / `PHONE_NUMBER`, Privacy Filter `private_*` (address, email, person, phone, url, date) | Surfaces the broader catches; `private_*` entries don't flag on their own but contribute to `category_summary` |
+
+An intermediate `standard` profile shipped in earlier iterations
+between `critical` and `all`. It was dropped during v1 simplification:
+once the `tax_form` custom regex was retired, the only entity it
+gated separately from `all` was Privacy Filter's `account_number` —
+and the flagged-set behaviour of `standard` and `all` was identical
+at that point. See
+[ADR 0005](decisions/0005-three-detector-pipeline.md).
 
 The tier lives in
 [`categorizer.py::_REGISTRY`](../inbox_scanner/detection/categorizer.py)
@@ -246,10 +232,9 @@ The detectors themselves all run in full regardless of profile — the
 filter happens in `categorizer.categorize()` before persistence. The
 runtime cost saving from a tighter profile is therefore small (only DB
 writes are skipped); the signal-to-noise improvement for the user is
-significant. On the dev corpus, `--profile critical` returns 0 findings,
-`standard` returns 12 (same 9 messages flagged as `all`), `all` returns
-74. Same flagged set at standard and all; the difference is
-informational context.
+significant. On the dev corpus, `--profile critical` returns 0
+findings (no real catastrophic-tier PII present); `--profile all`
+returns 74 findings flagging 9 messages.
 
 The chosen profile is persisted in `Scan.config_snapshot.profile`.
 Switching profiles requires a re-scan (per-scan rewrite semantics —
@@ -268,8 +253,6 @@ source of truth for `(detector, subtype) → user_category`:
 | `privacy_filter` account_number | `financial` |
 | `privacy_filter` secret | `credentials` |
 | `privacy_filter` private_* (address, email, person, phone, url, date) | `other_pii` |
-| `custom_regex` tax_form | `tax` |
-| `custom_regex` mnemonic_phrase | `credentials` |
 
 A coverage test (`tests/test_categorizer.py::test_every_registry_entry_is_valid`)
 asserts every row in `_REGISTRY` has a known tier and a category that
@@ -281,20 +264,20 @@ the registry plus the detector's emit.
 `compute_verdict(detections) -> {is_flagged, top_category, risk_score, category_summary}`:
 
 - **`is_flagged`** is true iff at least one detection belongs to a
-  flaggable category. The six flaggable categories are everything
+  flaggable category. The four flaggable categories are everything
   except `other_pii`:
-  `gov_id, credentials, financial, medical, tax, legal`.
+  `gov_id, credentials, financial, tax`.
   A message with only `other_pii` findings (names/addresses/emails
-  alone) is informational, not flagged.
+  alone) is informational, not flagged. `tax` has no v1 feeder after
+  the custom-regex removal but is kept defined so a future detector
+  can repopulate it.
 - **`risk_score = sum(RISK_WEIGHTS[cat] × count_per_cat)`, capped at
   100.** Weights:
   ```
   gov_id      = 10
   credentials = 10
   financial   = 7
-  medical     = 7
   tax         = 5
-  legal       = 3
   other_pii   = 0
   ```
 - **`top_category`** picks the highest-weight category present (ties

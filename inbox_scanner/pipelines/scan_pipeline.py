@@ -331,7 +331,7 @@ def _select_detect_work(
 def _run_detection_for_attachment(
     settings: Settings, item: dict, profile: Profile
 ) -> list[DetectionTuple]:
-    """Read the cached markdown and run all three detectors. Returns
+    """Read the cached markdown and run both detectors. Returns
     categorized detections; the caller persists them."""
     rel = item["extracted_text_path"]
     if not rel:

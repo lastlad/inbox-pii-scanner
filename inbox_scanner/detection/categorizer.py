@@ -40,7 +40,7 @@ class _Entry(NamedTuple):
 
     ``category`` is the user-facing bucket (gov_id, financial, tax,
     credentials, other_pii). ``tier`` is the criticality classification
-    the ``--profile`` filter consults (critical, standard, all).
+    the ``--profile`` filter consults (critical, all).
     """
 
     category: str
@@ -69,16 +69,13 @@ _REGISTRY: dict[tuple[str, str], _Entry] = {
     ("presidio", "PHONE_NUMBER"):        _Entry("other_pii",   "all"),
     # ---- Privacy Filter (8 entities) -----------------------------------
     ("privacy_filter", "secret"):           _Entry("credentials", "critical"),
-    ("privacy_filter", "account_number"):   _Entry("financial",   "standard"),
+    ("privacy_filter", "account_number"):   _Entry("financial",   "all"),
     ("privacy_filter", "private_person"):   _Entry("other_pii",   "all"),
     ("privacy_filter", "private_address"):  _Entry("other_pii",   "all"),
     ("privacy_filter", "private_email"):    _Entry("other_pii",   "all"),
     ("privacy_filter", "private_phone"):    _Entry("other_pii",   "all"),
     ("privacy_filter", "private_url"):      _Entry("other_pii",   "all"),
     ("privacy_filter", "private_date"):     _Entry("other_pii",   "all"),
-    # ---- Custom regex (2 patterns) -------------------------------------
-    ("custom_regex", "mnemonic_phrase"):    _Entry("credentials", "critical"),
-    ("custom_regex", "tax_form"):           _Entry("tax",         "standard"),
 }
 
 

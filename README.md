@@ -149,12 +149,11 @@ files, never Gmail.
 
 By default the scan reports only **critical** PII — things whose leak
 causes irreversible harm: Social Security numbers, passports, driver's
-licenses, credit cards, bank/IBAN numbers, ITINs, API keys/passwords,
-and crypto wallet mnemonics. To cast a wider net:
+licenses, credit cards, bank/IBAN numbers, ITINs, and API
+keys/passwords. To cast a wider net:
 
 ```sh
-uv run inbox-scanner scan --profile standard   # adds account numbers + tax forms
-uv run inbox-scanner scan --profile all        # additionally records names, addresses, emails, phones
+uv run inbox-scanner scan --profile all   # also flags broader account-shaped numbers + records names, addresses, emails, phones, etc.
 ```
 
 Switching profiles requires a re-scan (results are rewritten each run).

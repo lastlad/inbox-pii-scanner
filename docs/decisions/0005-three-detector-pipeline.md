@@ -39,13 +39,13 @@ emits `Finding`s; the categorizer merges):
   classification): contextual labels for `account_number,
   private_address, private_email, private_person, private_phone,
   private_url, private_date, secret`.
-- **Custom regex** for two US-specific patterns that the two models
-  can't replicate: tax-form titles (`W-2`, `1099-*`, `1040-*`,
-  `Schedule [A-K]`, `Form NNNN`, `K-1`) and BIP-39 mnemonic phrases
-  (12 or 24 lowercase words). An earlier set of six other patterns
-  (medical record numbers, insurance IDs, medical keyword cues,
-  credential `key=value`, recovery codes, legal-document keywords)
-  was dropped — see the trailing "Revision" section below.
+- **Custom regex** for one US-specific pattern the two models can't
+  replicate: tax-form titles (`W-2`, `1099-*`, `1040-*`,
+  `Schedule [A-K]`, `Form NNNN`, `K-1`). An earlier set of seven other
+  patterns (medical record numbers, insurance IDs, medical keyword
+  cues, credential `key=value`, recovery codes, legal-document
+  keywords, BIP-39 mnemonic phrases) was dropped — see the trailing
+  "Revisions" section below.
 
 A single `categorizer` maps every `(detector, subtype)` to one of
 seven user-facing categories. A coverage test ensures the map is
@@ -129,9 +129,8 @@ eight were dropped:
 | `medical_keyword` | Bare keyword spotter (`diagnosis`, `prescription`, etc.) — documents containing these words aren't necessarily PHI |
 | `legal_keyword` | Bare keyword spotter (`Tenant`, `Lessor`, etc.) — same problem |
 
-Survivors: `tax_form` (document-type signal, catches blank/template
-forms) and `mnemonic_phrase` (BIP-39 wordlist, irreplaceable for
-crypto-seed leak detection).
+Survivors at the time: `tax_form` (document-type signal, catches
+blank/template forms) and `mnemonic_phrase` (BIP-39 wordlist).
 
 **Consequence:** the `medical` and `legal` user categories no longer
 had any v1 feeders after this pare-down. Originally kept in
@@ -140,3 +139,42 @@ removed entirely as part of a broader v1 simplification (no orphan
 concepts in the codebase). Re-add them to `RISK_WEIGHTS` +
 `FLAGGABLE_CATEGORIES` + the categorizer's registry if a future
 detector ships a feeder for either.
+
+## Revision: 2026-05-17 (later that day) — `mnemonic_phrase` dropped
+
+Empirical follow-up testing showed `mnemonic_phrase` produced no real
+signal on broader corpora: crypto seed phrases simply don't appear
+in email attachments in practice (users store them in password
+managers, hardware wallets, or on paper, not in inboxes). The
+theoretical "catastrophic loss class" justification didn't survive
+contact with real data.
+
+Removed. Custom regex now ships one pattern (`tax_form`). The
+`credentials` user category still has a feeder via Privacy Filter's
+`secret` label, so removing this row didn't orphan any category.
+
+## Revision: 2026-05-17 (later still) — custom_regex retired entirely; profile tiers collapsed to two
+
+Empirical follow-up on `tax_form`: the only catch on the dev corpus
+was a single self-sent HSA Withdrawal Form. Useful, but not enough
+signal to justify maintaining a third detector subsystem (orchestrator
+plumbing, tests, registry entries, docs). Dropped.
+
+With `tax_form` gone, the `standard` profile tier had only one
+entity gating it separately from `all`: Privacy Filter's
+`account_number`. The flagged-set behaviour of `standard` and `all`
+was already identical on real data — both flag via `account_number`;
+the only difference was whether the informational ``private_*``
+entries got recorded. That distinction wasn't worth a separate
+profile.
+
+Outcome:
+
+- Custom regex detector deleted (module + tests + registry rows).
+  Title of this ADR is preserved for history but the system is now a
+  **two-detector pipeline** (Presidio + Privacy Filter).
+- `Profile.STANDARD` removed; `account_number` moved to tier `all`
+  (still flags via `category=financial`).
+- `tax` category remains in `RISK_WEIGHTS` + `FLAGGABLE_CATEGORIES`
+  with no v1 feeder (matches the existing pattern for `medical` and
+  `legal`). Future custom detector can repopulate.

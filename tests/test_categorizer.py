@@ -75,28 +75,19 @@ def test_privacy_filter_person_is_other_pii():
     )
 
 
-def test_custom_regex_tax_is_tax():
-    assert categorize(_f("custom_regex", "tax_form"), Profile.ALL).category == "tax"
-
-
-def test_custom_regex_mnemonic_is_credentials():
-    assert (
-        categorize(_f("custom_regex", "mnemonic_phrase"), Profile.ALL).category
-        == "credentials"
-    )
-
-
-def test_dropped_custom_subtypes_no_longer_categorize():
-    """The six subtypes removed in the v1 simplification must drop
-    silently if any legacy code path ever emits them — never
-    accidentally re-categorise."""
+def test_dropped_custom_regex_subtypes_no_longer_categorize():
+    """The custom_regex detector was removed entirely during v1
+    simplification. Anything emitted under that detector name must
+    drop silently — never accidentally re-categorise."""
     for subtype in (
+        "tax_form",
         "medical_record_number",
         "insurance_id",
         "medical_keyword",
         "credential_kv",
         "recovery_code",
         "legal_keyword",
+        "mnemonic_phrase",
     ):
         assert categorize(_f("custom_regex", subtype), Profile.ALL) is None
 
@@ -113,42 +104,33 @@ def test_categorize_all_filters_unmapped():
     findings = [
         _f("presidio", "US_SSN"),
         _f("presidio", "MADE_UP_ENTITY"),  # dropped
-        _f("custom_regex", "tax_form"),
+        _f("privacy_filter", "private_address"),
     ]
     out = categorize_all(findings, Profile.ALL)
-    assert [d.category for d in out] == ["gov_id", "tax"]
+    assert [d.category for d in out] == ["gov_id", "other_pii"]
 
 
 # ---------- profile filter ----------
 
 
-_CRITICAL_FINDING = ("presidio", "US_SSN")        # tier=critical
-_STANDARD_FINDING = ("custom_regex", "tax_form")  # tier=standard
-_ALL_TIER_FINDING = ("privacy_filter", "private_address")  # tier=all
+_CRITICAL_FINDING = ("presidio", "US_SSN")                  # tier=critical
+_ALL_TIER_FINDING = ("privacy_filter", "private_address")   # tier=all
 
 
-def test_profile_critical_drops_standard_and_all():
+def test_profile_critical_drops_all_tier_findings():
     assert categorize(_f(*_CRITICAL_FINDING), Profile.CRITICAL) is not None
-    assert categorize(_f(*_STANDARD_FINDING), Profile.CRITICAL) is None
     assert categorize(_f(*_ALL_TIER_FINDING), Profile.CRITICAL) is None
-
-
-def test_profile_standard_keeps_critical_and_standard_drops_all():
-    assert categorize(_f(*_CRITICAL_FINDING), Profile.STANDARD) is not None
-    assert categorize(_f(*_STANDARD_FINDING), Profile.STANDARD) is not None
-    assert categorize(_f(*_ALL_TIER_FINDING), Profile.STANDARD) is None
 
 
 def test_profile_all_keeps_everything():
     assert categorize(_f(*_CRITICAL_FINDING), Profile.ALL) is not None
-    assert categorize(_f(*_STANDARD_FINDING), Profile.ALL) is not None
     assert categorize(_f(*_ALL_TIER_FINDING), Profile.ALL) is not None
 
 
 def test_default_profile_is_critical():
     """``categorize`` without a profile argument behaves like CRITICAL.
     Pinned because the default is the CLI's default."""
-    # account_number is standard tier; default should filter it out.
+    # account_number is 'all' tier; default should filter it out.
     assert categorize(_f("privacy_filter", "account_number")) is None
     # US_SSN is critical; default should keep it.
     assert categorize(_f("presidio", "US_SSN")) is not None
@@ -157,12 +139,10 @@ def test_default_profile_is_critical():
 def test_categorize_all_respects_profile():
     findings = [
         _f("presidio", "US_SSN"),                 # critical → keep
-        _f("custom_regex", "tax_form"),           # standard → keep at standard+
         _f("privacy_filter", "private_address"),  # all → keep only at all
     ]
     assert len(categorize_all(findings, Profile.CRITICAL)) == 1
-    assert len(categorize_all(findings, Profile.STANDARD)) == 2
-    assert len(categorize_all(findings, Profile.ALL)) == 3
+    assert len(categorize_all(findings, Profile.ALL)) == 2
 
 
 # ---------- coverage: every registry entry is valid ----------
@@ -176,7 +156,7 @@ def test_every_registry_entry_is_valid():
     which is hard to debug. Fail loudly instead."""
     from inbox_scanner.detection.types import RISK_WEIGHTS
 
-    valid_tiers = {"critical", "standard", "all"}
+    valid_tiers = {"critical", "all"}
     weighted_categories = set(RISK_WEIGHTS.keys())
     for key, entry in _REGISTRY.items():
         assert entry.tier in valid_tiers, f"{key} has bad tier {entry.tier!r}"
@@ -190,7 +170,7 @@ def test_every_registry_entry_is_valid():
 
 def _det(category: str) -> Detection:
     """Detection in the requested category, with an arbitrary finding."""
-    finding = _f("custom_regex", "tax_form")  # subtype here doesn't matter
+    finding = _f("presidio", "US_SSN")  # subtype here doesn't matter
     return Detection(finding=finding, category=category)
 
 
