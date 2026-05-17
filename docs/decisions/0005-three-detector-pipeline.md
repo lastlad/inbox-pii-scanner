@@ -39,10 +39,13 @@ emits `Finding`s; the categorizer merges):
   classification): contextual labels for `account_number,
   private_address, private_email, private_person, private_phone,
   private_url, private_date, secret`.
-- **Custom regex** for eight US-specific patterns: tax forms,
-  medical record numbers, insurance IDs, medical keywords,
-  credential `key=value`, BIP-39 mnemonic phrases, recovery codes,
-  legal-document keywords.
+- **Custom regex** for two US-specific patterns that the two models
+  can't replicate: tax-form titles (`W-2`, `1099-*`, `1040-*`,
+  `Schedule [A-K]`, `Form NNNN`, `K-1`) and BIP-39 mnemonic phrases
+  (12 or 24 lowercase words). An earlier set of six other patterns
+  (medical record numbers, insurance IDs, medical keyword cues,
+  credential `key=value`, recovery codes, legal-document keywords)
+  was dropped — see the trailing "Revision" section below.
 
 A single `categorizer` maps every `(detector, subtype)` to one of
 seven user-facing categories. A coverage test ensures the map is
@@ -109,3 +112,28 @@ exhaustive.
   scope for v1 (local, no API calls). v2 backlog item:
   *Local LLM enrichment layer (document-type classification, risk
   explanations, smart grouping)*.
+
+## Revision: 2026-05-17 — custom regex pared from 8 patterns to 2
+
+The original v1 cut shipped eight custom patterns. After empirical
+review (1 of 130 detections on the dev corpus came from custom regex
+— the `tax_form` hit on the user's HSA Withdrawal Form), six of the
+eight were dropped:
+
+| Removed subtype | Reason |
+|---|---|
+| `credential_kv` | Duplicates Privacy Filter's `secret` label at lower precision |
+| `recovery_code` | Duplicates Privacy Filter's `secret` label |
+| `medical_record_number` | Never fired on the dev corpus; would mis-categorise some `account_number`-tagged spans as `medical` but otherwise low signal |
+| `insurance_id` | Same as MRN |
+| `medical_keyword` | Bare keyword spotter (`diagnosis`, `prescription`, etc.) — documents containing these words aren't necessarily PHI |
+| `legal_keyword` | Bare keyword spotter (`Tenant`, `Lessor`, etc.) — same problem |
+
+Survivors: `tax_form` (document-type signal, catches blank/template
+forms) and `mnemonic_phrase` (BIP-39 wordlist, irreplaceable for
+crypto-seed leak detection).
+
+**Consequence:** the `medical` and `legal` user categories no longer
+have any v1 feeders. Kept in `RISK_WEIGHTS` and `FLAGGABLE_CATEGORIES`
+so a future custom pattern can re-populate them without a categorizer
+change.

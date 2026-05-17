@@ -1,14 +1,28 @@
-"""US-specific regex patterns Presidio + Privacy Filter miss or handle weakly.
+"""High-signal US-specific patterns that the two models miss.
 
-Each pattern emits a Finding with ``detector='custom_regex'`` and a
-distinct ``subtype`` that the categorizer maps to a user-facing category.
+Pared down to the two patterns that provided unique signal in real-world
+testing and aren't covered by Presidio or Privacy Filter:
 
-These patterns intentionally err on the recall side — a v1 user reviews
-each flagged email manually, so a moderate false-positive rate is fine,
-but a tax form or medical record number that slips past detection is the
-failure mode we care about. The categorizer downgrades the noisiest of
-these (e.g. ``legal_keyword``) to lower-weight categories so they don't
-dominate the risk score.
+* ``tax_form`` — US tax form titles (W-2, 1099-*, 1040-*, Schedule [A-K],
+  Form NNNN, K-1). Document-type signal: catches blank or filled forms
+  that contain little or no fillable PII (e.g. an HSA Withdrawal Form
+  template) and that the two models would otherwise return nothing for.
+* ``mnemonic_phrase`` — 12- or 24-word BIP-39-shaped sequences. Crypto
+  wallet seed phrases look like ordinary plain-English wordlists, so
+  Privacy Filter's ``secret`` label doesn't generalize to them. The
+  surrounding context (12 or 24 short lowercase words in a row) is so
+  unusual that the false-positive rate is near zero.
+
+Earlier iterations also shipped patterns for medical record numbers,
+insurance IDs, medical/legal keyword cues, credential ``key=value``
+leaks, and recovery codes. They were dropped because they either
+duplicated Privacy Filter's ``secret`` / ``account_number`` labels at
+lower precision (credential_kv, recovery_code), or were bare keyword
+spotters with too-low specificity to be actionable (medical_keyword,
+legal_keyword), or never fired on the dev corpus despite the
+attendant maintenance cost (medical_record_number, insurance_id).
+See `docs/decisions/0005-three-detector-pipeline.md` for the full
+history.
 """
 
 from __future__ import annotations
@@ -19,9 +33,9 @@ from typing import Iterable
 from inbox_scanner.detection.types import Finding
 
 # ---------- Tax forms ----------
-# Common US tax-form headers and titles. Matches the form name itself, not
-# its content; the *presence* of "W-2" in a document is signal that the
-# document is tax-related.
+# Matches the form name itself, not its content; the *presence* of "W-2"
+# in a document is signal that the document is tax-related, regardless
+# of whether the form is filled in.
 _TAX_FORM_PATTERN = re.compile(
     r"\b("
     r"W-?2(?:G)?"                 # W-2, W2, W-2G
@@ -37,104 +51,34 @@ _TAX_FORM_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# ---------- Medical / insurance ----------
-# Medical record numbers — usually labelled.
-_MEDICAL_RECORD_PATTERN = re.compile(
-    r"\b(?:MRN|Medical\s+Record\s+(?:Number|No\.?|#)|Patient\s+(?:ID|Number|#))"
-    r"\s*[:#-]?\s*([A-Z0-9][A-Z0-9-]{3,15})\b",
-    re.IGNORECASE,
-)
-
-# Health insurance member / group / policy IDs.
-_INSURANCE_ID_PATTERN = re.compile(
-    r"\b(?:Member\s+(?:ID|Number|#)|Subscriber\s+(?:ID|#)|Group\s+(?:ID|Number|#)|Policy\s+(?:ID|Number|#)|RxBIN|RxPCN|RxGroup)"
-    r"\s*[:#-]?\s*([A-Z0-9][A-Z0-9-]{4,20})\b",
-    re.IGNORECASE,
-)
-
-# Common health-record keyword cues — used as a low-confidence signal that
-# something *medical* is in the document even when no formatted ID is.
-_MEDICAL_KEYWORD_PATTERN = re.compile(
-    r"\b(?:diagnosis|diagnosed\s+with|prescription|prescribed|patient\s+name|date\s+of\s+birth\s+\(DOB\)"
-    r"|visit\s+summary|lab\s+results?|ICD-?10|CPT\s+code)\b",
-    re.IGNORECASE,
-)
-
-# ---------- Credentials ----------
-# ``key: value`` style credential leaks. The labels are case-insensitive
-# but the value must be at least 6 non-space chars to avoid catching
-# placeholders like "password: ***".
-_CREDENTIAL_KV_PATTERN = re.compile(
-    r"\b(password|passphrase|api[_-]?key|access\s+token|bearer\s+token|secret(?:\s+key)?|client\s+secret|private[_-]?key)"
-    r"\s*[:=]\s*([^\s'\"`<>]{6,})",
-    re.IGNORECASE,
-)
-
-# 12- or 24-word BIP-39 mnemonic phrase. Very high signal, very low FPR
-# because the surrounding context (noun-only, all lowercase, exactly the
-# right count) is so unusual.
+# ---------- BIP-39 mnemonic phrase ----------
+# 12- or 24-word sequence of short lowercase tokens. Very high signal,
+# very low FPR — the all-lowercase, no-punctuation, exact-count
+# combination is so unusual that the rare false positive (e.g. a list of
+# common English words in marketing copy) is acceptable.
 _MNEMONIC_PHRASE_PATTERN = re.compile(
     r"(?<![A-Za-z])"
     r"(?:[a-z]{3,8}\s+){11,23}[a-z]{3,8}"
     r"(?![A-Za-z])"
 )
 
-# Recovery codes — often presented as "Recovery code: XXXX-XXXX" or
-# "Backup code: 12345 67890".
-_RECOVERY_CODE_PATTERN = re.compile(
-    r"\b(?:recovery|backup|one[_-]?time|2fa|two[_-]?factor)\s+code"
-    r"\s*[:#-]?\s*([A-Z0-9]{4,}(?:[-\s][A-Z0-9]{4,}){0,5})\b",
-    re.IGNORECASE,
-)
-
-# ---------- Legal ----------
-# Document keywords that suggest a contract, lease, or other binding
-# instrument. Low specificity — categorizer assigns the lowest risk
-# weight.
-_LEGAL_KEYWORD_PATTERN = re.compile(
-    r"\b("
-    r"Tenant|Landlord|Lessor|Lessee|Sublessee|Sublessor"
-    r"|Effective\s+Date"
-    r"|Party\s+of\s+the\s+(?:first|second)\s+part"
-    r"|Power\s+of\s+Attorney"
-    r"|Last\s+Will\s+(?:and\s+Testament)?"
-    r"|Notarized?"
-    r"|Witness(?:eth|ing)?"
-    r"|Hereinafter\s+referred\s+to"
-    r")\b",
-    re.IGNORECASE,
-)
-
 
 _PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (_TAX_FORM_PATTERN, "tax_form"),
-    (_MEDICAL_RECORD_PATTERN, "medical_record_number"),
-    (_INSURANCE_ID_PATTERN, "insurance_id"),
-    (_MEDICAL_KEYWORD_PATTERN, "medical_keyword"),
-    (_CREDENTIAL_KV_PATTERN, "credential_kv"),
     (_MNEMONIC_PHRASE_PATTERN, "mnemonic_phrase"),
-    (_RECOVERY_CODE_PATTERN, "recovery_code"),
-    (_LEGAL_KEYWORD_PATTERN, "legal_keyword"),
 )
 
 
-# Regex matches don't have a meaningful confidence score — we use a fixed
-# value per pattern based on how rarely each yields false positives in
-# practice. (Mnemonic phrases are very specific; legal keywords are not.)
+# Regex matches don't have a meaningful confidence score; we use a fixed
+# value per pattern based on observed false-positive rate.
 _CONFIDENCE: dict[str, float] = {
     "tax_form": 0.85,
-    "medical_record_number": 0.85,
-    "insurance_id": 0.75,
-    "medical_keyword": 0.55,
-    "credential_kv": 0.85,
     "mnemonic_phrase": 0.95,
-    "recovery_code": 0.85,
-    "legal_keyword": 0.55,
 }
 
 
 def detect(text: str) -> list[Finding]:
-    """Run all custom regex patterns and return findings."""
+    """Run the custom regex patterns and return findings."""
     if not text:
         return []
     out: list[Finding] = []

@@ -1,7 +1,8 @@
 """Tests for inbox_scanner.detection.custom_regex.
 
-Each pattern gets a positive case (a string we definitely should match)
-and a negative case (a near-miss we shouldn't false-positive on).
+Only two patterns survive in v1: ``tax_form`` and ``mnemonic_phrase``.
+Each gets a positive case (definitely should match) and at least one
+negative case (a near-miss we shouldn't false-positive on).
 """
 
 from __future__ import annotations
@@ -33,57 +34,20 @@ def test_tax_form_schedule():
     assert "tax_form" in _subtypes("Attach Schedule C with your return")
 
 
+def test_tax_form_hsa_8889():
+    # The dev-corpus HSA Withdrawal Form caught only because of this one.
+    assert "tax_form" in _subtypes(
+        "I further understand that … report the distribution … "
+        "Form 8889 for HSA …"
+    )
+
+
 def test_tax_form_no_match_in_words():
     # "1040" inside a longer number shouldn't match (word boundary).
     assert "tax_form" not in _subtypes("Order number 1040567890 confirmed")
 
 
-# ---------- medical ----------
-
-
-def test_medical_record_number():
-    found = _subtypes("Patient MRN: 12345-67")
-    assert "medical_record_number" in found
-
-
-def test_medical_record_long_form():
-    found = _subtypes("Medical Record Number: ABC-7788")
-    assert "medical_record_number" in found
-
-
-def test_insurance_id():
-    found = _subtypes("Member ID: BCBS-123456789")
-    assert "insurance_id" in found
-
-
-def test_medical_keyword():
-    found = _subtypes("Diagnosis: hypertension. Prescribed: lisinopril 10mg.")
-    assert "medical_keyword" in found
-
-
-def test_medical_no_match_in_unrelated_text():
-    # Avoid catching "patient" alone or other non-clinical contexts.
-    assert "medical_record_number" not in _subtypes(
-        "Be patient with the system while it loads."
-    )
-
-
-# ---------- credentials ----------
-
-
-def test_credential_kv_password():
-    found = _subtypes("password: hunter2pass")
-    assert "credential_kv" in found
-
-
-def test_credential_kv_api_key():
-    found = _subtypes("api_key=sk_live_12345abcdef")
-    assert "credential_kv" in found
-
-
-def test_credential_kv_ignores_short_value():
-    # "***" or 3-character placeholders shouldn't trigger.
-    assert "credential_kv" not in _subtypes("password: ***")
+# ---------- mnemonic phrase ----------
 
 
 def test_mnemonic_phrase_12_words():
@@ -102,50 +66,18 @@ def test_mnemonic_phrase_too_short():
 
 
 def test_mnemonic_phrase_rejects_capitalized():
-    # All-caps or mixed-case shouldn't match (BIP-39 mnemonics are
-    # canonical lowercase).
+    # All-caps or mixed-case shouldn't match — canonical BIP-39 wordlists
+    # are lowercase.
     phrase = "Apple Banana Cherry " * 4
     assert "mnemonic_phrase" not in _subtypes(phrase)
-
-
-def test_recovery_code():
-    found = _subtypes("Recovery code: ABCD-EFGH-IJKL")
-    assert "recovery_code" in found
-
-
-# ---------- legal ----------
-
-
-def test_legal_keyword_lease():
-    found = _subtypes("This Lease Agreement is between Landlord and Tenant")
-    assert "legal_keyword" in found
-
-
-def test_legal_keyword_will():
-    found = _subtypes("Last Will and Testament of John Q Public")
-    assert "legal_keyword" in found
-
-
-def test_legal_keyword_party_of():
-    found = _subtypes("hereinafter Party of the first part shall pay…")
-    assert "legal_keyword" in found
 
 
 # ---------- public surface ----------
 
 
 def test_supported_subtypes_pinned():
-    expected = {
-        "tax_form",
-        "medical_record_number",
-        "insurance_id",
-        "medical_keyword",
-        "credential_kv",
-        "mnemonic_phrase",
-        "recovery_code",
-        "legal_keyword",
-    }
-    assert set(custom_regex.supported_subtypes()) == expected
+    """Pin the v1 set so accidental additions / removals show up here."""
+    assert set(custom_regex.supported_subtypes()) == {"tax_form", "mnemonic_phrase"}
 
 
 def test_empty_text_returns_empty():

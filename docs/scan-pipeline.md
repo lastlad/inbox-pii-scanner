@@ -200,26 +200,29 @@ dev corpus dropped from 118 → 61 with this fix.
 
 #### Custom regex (US-specific)
 
-[`custom_regex.py`](../inbox_scanner/detection/custom_regex.py). Eight
-patterns Presidio and Privacy Filter miss or handle weakly. Each has a
-fixed confidence based on how often it false-positives in practice:
+[`custom_regex.py`](../inbox_scanner/detection/custom_regex.py). Two
+patterns — each provides signal neither Presidio nor Privacy Filter
+can:
 
-| subtype | example match | fixed confidence |
-|---|---|---|
-| `tax_form` | `W-2`, `1099-NEC`, `Form 8889`, `Schedule C` | 0.85 |
-| `medical_record_number` | `MRN: 12345-67`, `Patient ID: ABC-7788` | 0.85 |
-| `insurance_id` | `Member ID: BCBS-12345`, `Group #: ...` | 0.75 |
-| `medical_keyword` | `diagnosis`, `prescription`, `ICD-10`, `CPT code` | 0.55 |
-| `credential_kv` | `password: hunter2pass`, `api_key=...` | 0.85 |
-| `mnemonic_phrase` | 12 or 24 lowercase BIP-39-shaped words | 0.95 |
-| `recovery_code` | `Recovery code: ABCD-EFGH-IJKL` | 0.85 |
-| `legal_keyword` | `Tenant`, `Lessor`, `Power of Attorney`, `Last Will` | 0.55 |
+| subtype | example match | fixed confidence | category | why kept |
+|---|---|---|---|---|
+| `tax_form` | `W-2`, `1099-NEC`, `Form 8889`, `Schedule C` | 0.85 | `tax` | Document-type detector. Catches blank/template tax forms that contain no fillable PII for the models to find (the dev-corpus HSA Withdrawal Form was caught only by this) |
+| `mnemonic_phrase` | 12 or 24 lowercase BIP-39-shaped words | 0.95 | `credentials` | Crypto wallet seed phrases look like ordinary English wordlists; the model's `secret` label doesn't generalise to them. Catastrophic loss class with very low FPR thanks to the count-and-shape constraint |
 
-These err on the recall side: a moderate false-positive rate is
-acceptable in v1 because a human reviews each flagged email manually.
-The categorizer downgrades the noisiest of them (`legal_keyword`,
-`medical_keyword`) to lower risk weights so they don't dominate the
-top-5 by-risk list.
+Earlier iterations also shipped `medical_record_number`,
+`insurance_id`, `medical_keyword`, `credential_kv`, `recovery_code`,
+and `legal_keyword`. Those were dropped in the v1 simplification —
+either they duplicated Privacy Filter's `secret` / `account_number`
+labels at lower precision, or they were bare keyword spotters too
+imprecise to be actionable. See custom_regex.py's module docstring
+for the full history. Two consequences:
+
+- The `medical` and `legal` user categories currently have no v1
+  feeders. They remain in `RISK_WEIGHTS` and `FLAGGABLE_CATEGORIES`
+  so a future detector can repopulate them without a categorizer
+  change.
+- Existing scan rows with the removed subtypes get cleared on the
+  next `scan` run (detection is rewritten per-scan).
 
 ### Categorizer
 
@@ -235,9 +238,7 @@ source of truth for `(detector, subtype) → user_category`:
 | `privacy_filter` secret | `credentials` |
 | `privacy_filter` private_* (address, email, person, phone, url, date) | `other_pii` |
 | `custom_regex` tax_form | `tax` |
-| `custom_regex` medical_record_number / insurance_id / medical_keyword | `medical` |
-| `custom_regex` credential_kv / mnemonic_phrase / recovery_code | `credentials` |
-| `custom_regex` legal_keyword | `legal` |
+| `custom_regex` mnemonic_phrase | `credentials` |
 
 A coverage test (`tests/test_categorizer.py::test_every_mapped_category_is_known`)
 asserts every category in this map has a weight in `RISK_WEIGHTS`.

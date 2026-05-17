@@ -58,13 +58,14 @@ _CATEGORY_MAP: dict[str, dict[str, str]] = {
     },
     "custom_regex": {
         "tax_form": "tax",
-        "medical_record_number": "medical",
-        "insurance_id": "medical",
-        "medical_keyword": "medical",
-        "credential_kv": "credentials",
         "mnemonic_phrase": "credentials",
-        "recovery_code": "credentials",
-        "legal_keyword": "legal",
+        # Earlier subtypes (medical_record_number, insurance_id,
+        # medical_keyword, credential_kv, recovery_code, legal_keyword)
+        # were removed — see custom_regex.py docstring for the
+        # rationale. The ``medical`` and ``legal`` user categories no
+        # longer have any v1 feeders but are kept in RISK_WEIGHTS so a
+        # future custom pattern can re-populate them without a
+        # categorizer change.
     },
 }
 

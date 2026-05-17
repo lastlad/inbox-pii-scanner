@@ -66,18 +66,23 @@ def test_custom_regex_tax_is_tax():
     assert categorize(_f("custom_regex", "tax_form")).category == "tax"
 
 
-def test_custom_regex_medical_is_medical():
-    for subtype in ("medical_record_number", "insurance_id", "medical_keyword"):
-        assert categorize(_f("custom_regex", subtype)).category == "medical"
+def test_custom_regex_mnemonic_is_credentials():
+    assert categorize(_f("custom_regex", "mnemonic_phrase")).category == "credentials"
 
 
-def test_custom_regex_credentials_is_credentials():
-    for subtype in ("credential_kv", "mnemonic_phrase", "recovery_code"):
-        assert categorize(_f("custom_regex", subtype)).category == "credentials"
-
-
-def test_custom_regex_legal_is_legal():
-    assert categorize(_f("custom_regex", "legal_keyword")).category == "legal"
+def test_dropped_custom_subtypes_no_longer_categorize():
+    """The six subtypes removed in the v1 simplification must drop
+    silently if any legacy code path ever emits them — never
+    accidentally re-categorise."""
+    for subtype in (
+        "medical_record_number",
+        "insurance_id",
+        "medical_keyword",
+        "credential_kv",
+        "recovery_code",
+        "legal_keyword",
+    ):
+        assert categorize(_f("custom_regex", subtype)) is None
 
 
 def test_unknown_detector_dropped():
@@ -103,7 +108,7 @@ def test_categorize_all_filters_unmapped():
 
 def _det(category: str) -> Detection:
     """Detection in the requested category, with an arbitrary finding."""
-    finding = _f("custom_regex", "legal_keyword")  # subtype here doesn't matter
+    finding = _f("custom_regex", "tax_form")  # subtype here doesn't matter
     return Detection(finding=finding, category=category)
 
 
