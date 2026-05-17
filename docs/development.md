@@ -153,12 +153,13 @@ needs to happen before any session-using code.
 ### Adding a new detector subtype
 
 1. Update the detector to emit `Finding(detector="...", subtype="<new>")`.
-2. Add a row in `detection/categorizer.py::_CATEGORY_MAP` mapping
-   `(detector, "<new>")` to a user category.
-3. The category-coverage test
-   (`tests/test_categorizer.py::test_every_mapped_category_is_known`)
-   will fail if the chosen category isn't in `RISK_WEIGHTS`. If it
-   isn't, add the category there too.
+2. Add one row to `detection/categorizer.py::_REGISTRY`:
+   `("detector", "<new>"): _Entry(category, tier)`. The category must
+   already be in `RISK_WEIGHTS`; the tier must be one of `critical`,
+   `standard`, `all` (see [Profile](../inbox_scanner/detection/types.py)
+   for the meaning).
+3. `tests/test_categorizer.py::test_every_registry_entry_is_valid`
+   enforces both invariants — failing test means a malformed row.
 4. Add positive + negative tests in the appropriate `tests/test_*`
    file.
 

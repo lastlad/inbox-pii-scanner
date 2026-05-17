@@ -7,8 +7,7 @@ the per-message verdicts the UI shows. Keep it well-pinned.
 from __future__ import annotations
 
 from inbox_scanner.detection.categorizer import (
-    _CATEGORY_MAP,
-    _TIER_MAP,
+    _REGISTRY,
     categorize,
     categorize_all,
     compute_verdict,
@@ -166,27 +165,24 @@ def test_categorize_all_respects_profile():
     assert len(categorize_all(findings, Profile.ALL)) == 3
 
 
-# ---------- coverage: every mapped (detector, subtype) has a tier ----------
+# ---------- coverage: every registry entry is valid ----------
 
 
-def test_every_mapped_subtype_has_a_tier():
-    """Adding a new entity to ``_CATEGORY_MAP`` without classifying it
-    in ``_TIER_MAP`` would silently default to "drop at any profile",
-    which would be confusing. Fail loudly instead."""
-    mapped = {
-        (detector, subtype)
-        for detector, by_subtype in _CATEGORY_MAP.items()
-        for subtype in by_subtype
-    }
-    missing = mapped - set(_TIER_MAP.keys())
-    assert missing == set(), f"untiered entities: {sorted(missing)}"
+def test_every_registry_entry_is_valid():
+    """Single coverage test for the unified registry: every (detector,
+    subtype) row must have a tier from the documented set and a
+    category that has a risk weight. A typo in either field would
+    otherwise silently turn into "always drop" or "always score 0",
+    which is hard to debug. Fail loudly instead."""
+    from inbox_scanner.detection.types import RISK_WEIGHTS
 
-
-def test_tier_map_values_are_known():
-    """Tier strings must come from the documented set; a typo would
-    silently turn into "always drop"."""
-    for key, tier in _TIER_MAP.items():
-        assert tier in {"critical", "standard", "all"}, f"{key} has bad tier {tier!r}"
+    valid_tiers = {"critical", "standard", "all"}
+    weighted_categories = set(RISK_WEIGHTS.keys())
+    for key, entry in _REGISTRY.items():
+        assert entry.tier in valid_tiers, f"{key} has bad tier {entry.tier!r}"
+        assert (
+            entry.category in weighted_categories
+        ), f"{key} category {entry.category!r} has no RISK_WEIGHTS entry"
 
 
 # ---------- compute_verdict() ----------
@@ -266,14 +262,3 @@ def test_category_summary_counts_per_category():
 def test_every_flaggable_category_has_a_weight():
     for cat in FLAGGABLE_CATEGORIES:
         assert RISK_WEIGHTS.get(cat, 0) > 0, f"missing risk weight for {cat}"
-
-
-def test_every_mapped_category_is_known():
-    """Every category referenced in _CATEGORY_MAP must appear in
-    RISK_WEIGHTS — otherwise scoring would silently drop it."""
-    seen_categories = {
-        cat for by_detector in _CATEGORY_MAP.values() for cat in by_detector.values()
-    }
-    assert seen_categories <= set(RISK_WEIGHTS.keys()), (
-        f"unweighted categories: {seen_categories - set(RISK_WEIGHTS.keys())}"
-    )

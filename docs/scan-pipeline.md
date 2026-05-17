@@ -233,12 +233,14 @@ each subsumes the previous:
 | `standard` | Above + Privacy Filter `account_number` + custom regex `tax_form` | Cast a wider net; catches account-shaped numbers (student IDs, order IDs, tracking #s) and tax-form documents |
 | `all` | Above + all Privacy Filter `private_*` and Presidio `EMAIL_ADDRESS` / `PHONE_NUMBER` | Surfaces informational context (names, addresses, emails, phones, URLs, dates); these don't flag on their own but contribute to `category_summary` |
 
-The tier map lives in
-[`categorizer.py::_TIER_MAP`](../inbox_scanner/detection/categorizer.py)
-and is enforced by a coverage test
-(`tests/test_categorizer.py::test_every_mapped_subtype_has_a_tier`) —
-adding a new entity to `_CATEGORY_MAP` without classifying it fails
-loudly rather than silently defaulting to "always drop".
+The tier lives in
+[`categorizer.py::_REGISTRY`](../inbox_scanner/detection/categorizer.py)
+alongside the user category — each row is an ``_Entry(category, tier)``
+NamedTuple. A coverage test
+(`tests/test_categorizer.py::test_every_registry_entry_is_valid`)
+enforces that the tier is one of the known values and the category has
+a risk weight, so adding a malformed row fails loudly rather than
+silently defaulting to "always drop".
 
 The detectors themselves all run in full regardless of profile — the
 filter happens in `categorizer.categorize()` before persistence. The
@@ -269,9 +271,10 @@ source of truth for `(detector, subtype) → user_category`:
 | `custom_regex` tax_form | `tax` |
 | `custom_regex` mnemonic_phrase | `credentials` |
 
-A coverage test (`tests/test_categorizer.py::test_every_mapped_category_is_known`)
-asserts every category in this map has a weight in `RISK_WEIGHTS`.
-Adding a new subtype is one row here plus the detector's emit.
+A coverage test (`tests/test_categorizer.py::test_every_registry_entry_is_valid`)
+asserts every row in `_REGISTRY` has a known tier and a category that
+has a weight in `RISK_WEIGHTS`. Adding a new subtype is one row in
+the registry plus the detector's emit.
 
 ### Verdict computation
 

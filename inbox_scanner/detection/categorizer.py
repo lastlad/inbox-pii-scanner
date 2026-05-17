@@ -1,27 +1,28 @@
 """Map raw detector findings → user-facing categories + per-message verdict.
 
-The single source of truth for what each detector subtype means in the UI.
-Add a new detector? You add a row here; the rest of the pipeline keeps
-working without code changes.
+The single source of truth for what each detector subtype means in the
+UI and how it interacts with ``--profile``. Add a new detector subtype?
+Add **one** row to ``_REGISTRY``; the rest of the pipeline keeps working
+without further code changes.
 
-Verdict computation (`compute_verdict`):
+Verdict computation (``compute_verdict``):
 
 * ``is_flagged`` is true when at least one finding belongs to one of the
-  six "real PII" categories (gov_id, financial, tax, medical,
-  credentials, legal). A message with only ``other_pii`` findings (names,
-  addresses, emails alone) is informational and does not flag.
-* ``risk_score`` sums the per-category weights from
+  flaggable user categories (gov_id, financial, tax, credentials). A
+  message with only ``other_pii`` findings (names, addresses, emails
+  alone) is informational and does not flag.
+* ``risk_score`` sums per-category weights from
   :data:`inbox_scanner.detection.types.RISK_WEIGHTS` over the message's
   detections, capped at :data:`RISK_SCORE_CAP`.
-* ``top_category`` is the highest-weighted category present (ties broken
-  by detection count, then alphabetical for determinism).
+* ``top_category`` is the highest-weighted category present (ties
+  broken by detection count, then alphabetical for determinism).
 * ``category_summary`` is ``{category: count}`` for the UI's badges.
 """
 
 from __future__ import annotations
 
 from collections import Counter
-from typing import Iterable
+from typing import Iterable, NamedTuple
 
 from inbox_scanner.detection.types import (
     FLAGGABLE_CATEGORIES,
@@ -33,80 +34,51 @@ from inbox_scanner.detection.types import (
     profile_includes_tier,
 )
 
-# detector → subtype → user category
-# Subtype matching is case-sensitive — Presidio uses UPPER_SNAKE,
-# Privacy Filter uses lower_snake, our regex uses lower_snake.
-_CATEGORY_MAP: dict[str, dict[str, str]] = {
-    "presidio": {
-        "US_SSN": "gov_id",
-        "US_PASSPORT": "gov_id",
-        "US_DRIVER_LICENSE": "gov_id",
-        "US_ITIN": "gov_id",
-        "CREDIT_CARD": "financial",
-        "IBAN_CODE": "financial",
-        "US_BANK_NUMBER": "financial",
-        "EMAIL_ADDRESS": "other_pii",
-        "PHONE_NUMBER": "other_pii",
-    },
-    "privacy_filter": {
-        "account_number": "financial",
-        "secret": "credentials",
-        "private_address": "other_pii",
-        "private_email": "other_pii",
-        "private_person": "other_pii",
-        "private_phone": "other_pii",
-        "private_url": "other_pii",
-        "private_date": "other_pii",
-    },
-    "custom_regex": {
-        "tax_form": "tax",
-        "mnemonic_phrase": "credentials",
-        # Earlier subtypes (medical_record_number, insurance_id,
-        # medical_keyword, credential_kv, recovery_code, legal_keyword)
-        # were removed — see custom_regex.py docstring for the
-        # rationale. The ``medical`` and ``legal`` user categories no
-        # longer have any v1 feeders but are kept in RISK_WEIGHTS so a
-        # future custom pattern can re-populate them without a
-        # categorizer change.
-    },
-}
+
+class _Entry(NamedTuple):
+    """One row of the detector registry.
+
+    ``category`` is the user-facing bucket (gov_id, financial, tax,
+    credentials, other_pii). ``tier`` is the criticality classification
+    the ``--profile`` filter consults (critical, standard, all).
+    """
+
+    category: str
+    tier: str
 
 
-# Per-entity criticality tier. Drives the ``--profile`` filter:
-#   * ``critical`` — irreversible-harm class; always reported regardless
-#     of profile.
-#   * ``standard`` — sensitive-but-recoverable; reported at ``standard``
-#     and ``all``.
-#   * ``all`` — informational context (today's ``other_pii``); only
-#     reported at ``all``.
+# (detector, subtype) → (user category, criticality tier).
 #
-# A coverage test (test_categorizer.py) asserts every (detector,
-# subtype) in _CATEGORY_MAP has a tier here, so adding a new entity
-# without classifying it would fail loudly rather than silently default
-# to "always show".
-_TIER_MAP: dict[tuple[str, str], str] = {
-    # ---- Presidio (9 entities) ----
-    ("presidio", "US_SSN"):              "critical",
-    ("presidio", "US_PASSPORT"):         "critical",
-    ("presidio", "US_DRIVER_LICENSE"):   "critical",
-    ("presidio", "US_ITIN"):             "critical",
-    ("presidio", "CREDIT_CARD"):         "critical",
-    ("presidio", "IBAN_CODE"):           "critical",
-    ("presidio", "US_BANK_NUMBER"):      "critical",
-    ("presidio", "EMAIL_ADDRESS"):       "all",
-    ("presidio", "PHONE_NUMBER"):        "all",
-    # ---- Privacy Filter (8 entities) ----
-    ("privacy_filter", "secret"):           "critical",
-    ("privacy_filter", "account_number"):   "standard",
-    ("privacy_filter", "private_person"):   "all",
-    ("privacy_filter", "private_address"):  "all",
-    ("privacy_filter", "private_email"):    "all",
-    ("privacy_filter", "private_phone"):    "all",
-    ("privacy_filter", "private_url"):      "all",
-    ("privacy_filter", "private_date"):     "all",
-    # ---- Custom regex (2 patterns) ----
-    ("custom_regex", "mnemonic_phrase"):    "critical",
-    ("custom_regex", "tax_form"):           "standard",
+# Subtype matching is case-sensitive — Presidio uses UPPER_SNAKE,
+# Privacy Filter uses lower_snake, custom regex uses lower_snake.
+#
+# To add a new detector subtype: add ONE row here. The categorize()
+# function will pick it up; the test_every_registry_entry_is_valid
+# coverage test enforces that ``tier`` is a known value and that
+# ``category`` has a weight in RISK_WEIGHTS.
+_REGISTRY: dict[tuple[str, str], _Entry] = {
+    # ---- Presidio (9 entities) -----------------------------------------
+    ("presidio", "US_SSN"):              _Entry("gov_id",      "critical"),
+    ("presidio", "US_PASSPORT"):         _Entry("gov_id",      "critical"),
+    ("presidio", "US_DRIVER_LICENSE"):   _Entry("gov_id",      "critical"),
+    ("presidio", "US_ITIN"):             _Entry("gov_id",      "critical"),
+    ("presidio", "CREDIT_CARD"):         _Entry("financial",   "critical"),
+    ("presidio", "IBAN_CODE"):           _Entry("financial",   "critical"),
+    ("presidio", "US_BANK_NUMBER"):      _Entry("financial",   "critical"),
+    ("presidio", "EMAIL_ADDRESS"):       _Entry("other_pii",   "all"),
+    ("presidio", "PHONE_NUMBER"):        _Entry("other_pii",   "all"),
+    # ---- Privacy Filter (8 entities) -----------------------------------
+    ("privacy_filter", "secret"):           _Entry("credentials", "critical"),
+    ("privacy_filter", "account_number"):   _Entry("financial",   "standard"),
+    ("privacy_filter", "private_person"):   _Entry("other_pii",   "all"),
+    ("privacy_filter", "private_address"):  _Entry("other_pii",   "all"),
+    ("privacy_filter", "private_email"):    _Entry("other_pii",   "all"),
+    ("privacy_filter", "private_phone"):    _Entry("other_pii",   "all"),
+    ("privacy_filter", "private_url"):      _Entry("other_pii",   "all"),
+    ("privacy_filter", "private_date"):     _Entry("other_pii",   "all"),
+    # ---- Custom regex (2 patterns) -------------------------------------
+    ("custom_regex", "mnemonic_phrase"):    _Entry("credentials", "critical"),
+    ("custom_regex", "tax_form"):           _Entry("tax",         "standard"),
 }
 
 
@@ -115,24 +87,19 @@ def categorize(
 ) -> Detection | None:
     """Return the categorized Detection, or ``None`` to drop the finding.
 
-    Drops in three cases:
+    Drops in two cases:
 
-    1. Unknown detector (no entry in ``_CATEGORY_MAP``).
-    2. Unknown subtype for that detector.
-    3. The entity's criticality tier isn't included in ``profile`` —
+    1. The ``(detector, subtype)`` pair is unknown.
+    2. The entity's criticality tier isn't included in ``profile`` —
        e.g. an ``all``-tier ``private_address`` is dropped at the
        default ``critical`` profile.
     """
-    by_detector = _CATEGORY_MAP.get(finding.detector)
-    if by_detector is None:
+    entry = _REGISTRY.get((finding.detector, finding.subtype))
+    if entry is None:
         return None
-    category = by_detector.get(finding.subtype)
-    if category is None:
+    if not profile_includes_tier(profile, entry.tier):
         return None
-    tier = _TIER_MAP.get((finding.detector, finding.subtype))
-    if tier is None or not profile_includes_tier(profile, tier):
-        return None
-    return Detection(finding=finding, category=category)
+    return Detection(finding=finding, category=entry.category)
 
 
 def categorize_all(
