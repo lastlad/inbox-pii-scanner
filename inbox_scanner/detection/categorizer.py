@@ -29,6 +29,8 @@ from inbox_scanner.detection.types import (
     RISK_WEIGHTS,
     Detection,
     Finding,
+    Profile,
+    profile_includes_tier,
 )
 
 # detector → subtype → user category
@@ -70,21 +72,75 @@ _CATEGORY_MAP: dict[str, dict[str, str]] = {
 }
 
 
-def categorize(finding: Finding) -> Detection | None:
-    """Return the categorized Detection, or ``None`` to drop the finding."""
+# Per-entity criticality tier. Drives the ``--profile`` filter:
+#   * ``critical`` — irreversible-harm class; always reported regardless
+#     of profile.
+#   * ``standard`` — sensitive-but-recoverable; reported at ``standard``
+#     and ``all``.
+#   * ``all`` — informational context (today's ``other_pii``); only
+#     reported at ``all``.
+#
+# A coverage test (test_categorizer.py) asserts every (detector,
+# subtype) in _CATEGORY_MAP has a tier here, so adding a new entity
+# without classifying it would fail loudly rather than silently default
+# to "always show".
+_TIER_MAP: dict[tuple[str, str], str] = {
+    # ---- Presidio (9 entities) ----
+    ("presidio", "US_SSN"):              "critical",
+    ("presidio", "US_PASSPORT"):         "critical",
+    ("presidio", "US_DRIVER_LICENSE"):   "critical",
+    ("presidio", "US_ITIN"):             "critical",
+    ("presidio", "CREDIT_CARD"):         "critical",
+    ("presidio", "IBAN_CODE"):           "critical",
+    ("presidio", "US_BANK_NUMBER"):      "critical",
+    ("presidio", "EMAIL_ADDRESS"):       "all",
+    ("presidio", "PHONE_NUMBER"):        "all",
+    # ---- Privacy Filter (8 entities) ----
+    ("privacy_filter", "secret"):           "critical",
+    ("privacy_filter", "account_number"):   "standard",
+    ("privacy_filter", "private_person"):   "all",
+    ("privacy_filter", "private_address"):  "all",
+    ("privacy_filter", "private_email"):    "all",
+    ("privacy_filter", "private_phone"):    "all",
+    ("privacy_filter", "private_url"):      "all",
+    ("privacy_filter", "private_date"):     "all",
+    # ---- Custom regex (2 patterns) ----
+    ("custom_regex", "mnemonic_phrase"):    "critical",
+    ("custom_regex", "tax_form"):           "standard",
+}
+
+
+def categorize(
+    finding: Finding, profile: Profile = Profile.CRITICAL
+) -> Detection | None:
+    """Return the categorized Detection, or ``None`` to drop the finding.
+
+    Drops in three cases:
+
+    1. Unknown detector (no entry in ``_CATEGORY_MAP``).
+    2. Unknown subtype for that detector.
+    3. The entity's criticality tier isn't included in ``profile`` —
+       e.g. an ``all``-tier ``private_address`` is dropped at the
+       default ``critical`` profile.
+    """
     by_detector = _CATEGORY_MAP.get(finding.detector)
     if by_detector is None:
         return None
     category = by_detector.get(finding.subtype)
     if category is None:
         return None
+    tier = _TIER_MAP.get((finding.detector, finding.subtype))
+    if tier is None or not profile_includes_tier(profile, tier):
+        return None
     return Detection(finding=finding, category=category)
 
 
-def categorize_all(findings: Iterable[Finding]) -> list[Detection]:
+def categorize_all(
+    findings: Iterable[Finding], profile: Profile = Profile.CRITICAL
+) -> list[Detection]:
     out: list[Detection] = []
     for f in findings:
-        d = categorize(f)
+        d = categorize(f, profile)
         if d is not None:
             out.append(d)
     return out

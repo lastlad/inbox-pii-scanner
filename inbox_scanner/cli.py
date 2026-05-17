@@ -26,6 +26,7 @@ from sqlalchemy import func, select
 
 from inbox_scanner.config import Settings, load_settings
 from inbox_scanner.db import make_engine, make_session_factory, session_scope
+from inbox_scanner.detection.types import Profile
 from inbox_scanner.gmail.auth import CredentialsMissing, run_oauth_flow
 from inbox_scanner.gmail.sync import MailboxScope, run_sync
 from inbox_scanner.logging import configure_logging, get_logger
@@ -183,12 +184,29 @@ def scan(
         bool,
         typer.Option("--only-detect", help="Run detection only; skip extraction."),
     ] = False,
+    profile: Annotated[
+        Profile,
+        typer.Option(
+            case_sensitive=False,
+            help=(
+                "Detection filter. 'critical' (default) reports only "
+                "irreversible-harm entities (SSN, passport, credit card, "
+                "IBAN, US bank, ITIN, driver's license, secret, BIP-39 "
+                "mnemonic). 'standard' adds account_number and tax_form. "
+                "'all' additionally records informational context "
+                "(names, addresses, emails, phones, URLs, dates). "
+                "Detection still runs all detectors in full — this "
+                "filters what gets persisted. Re-scan to switch profiles."
+            ),
+        ),
+    ] = Profile.CRITICAL,
 ) -> None:
     """Phase 2: extract + detect on locally cached attachments. No Gmail access.
 
-    Step-4 scope: extraction only. Born-digital documents go through Docling;
-    images and scanned PDFs are deferred to step 5's VLM. Detection arrives
-    in step 6.
+    By default reports only irreversible-harm PII (``--profile critical``).
+    Use ``--profile standard`` to also flag broader account-shaped numbers
+    and tax-form documents, or ``--profile all`` to also surface
+    informational context (names, addresses, emails, etc.).
     """
     if only_extract and only_detect:
         raise typer.BadParameter("--only-extract and --only-detect are mutually exclusive.")
@@ -199,6 +217,7 @@ def scan(
         force_extract=force_extract,
         only_extract=only_extract,
         only_detect=only_detect,
+        profile=profile.value,
     )
 
     engine = make_engine(settings.db_path)
@@ -238,6 +257,7 @@ def scan(
                 force_extract=force_extract,
                 only_extract=only_extract,
                 only_detect=only_detect,
+                profile=profile,
                 extract_concurrency=settings.extraction.extract_concurrency,
                 on_extract_total_known=_on_extract_total_known,
                 on_extract_done=_on_extract_done,

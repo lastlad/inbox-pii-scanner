@@ -35,7 +35,7 @@ from inbox_scanner.blobs import read_blob
 from inbox_scanner.config import Settings
 from inbox_scanner.db import session_scope
 from inbox_scanner.detection import categorizer, runner as detection_runner
-from inbox_scanner.detection.types import Detection as DetectionTuple, Finding
+from inbox_scanner.detection.types import Detection as DetectionTuple, Finding, Profile
 from inbox_scanner.extraction import docling_extractor
 from inbox_scanner.extraction.router import route as route_attachment
 from inbox_scanner.logging import get_logger
@@ -326,7 +326,7 @@ def _select_detect_work(
 
 
 def _run_detection_for_attachment(
-    settings: Settings, item: dict
+    settings: Settings, item: dict, profile: Profile
 ) -> list[DetectionTuple]:
     """Read the cached markdown and run all three detectors. Returns
     categorized detections; the caller persists them."""
@@ -344,6 +344,7 @@ def _run_detection_for_attachment(
         text,
         presidio_threshold=settings.detection.presidio_threshold,
         privacy_filter_threshold=settings.detection.privacy_filter_threshold,
+        profile=profile,
     )
 
 
@@ -463,6 +464,7 @@ async def run_scan(
     force_extract: bool = False,
     only_extract: bool = False,
     only_detect: bool = False,
+    profile: Profile = Profile.CRITICAL,
     extract_concurrency: int = _DEFAULT_EXTRACT_CONCURRENCY,
     detect_concurrency: int = _DEFAULT_DETECT_CONCURRENCY,
     on_extract_total_known=None,
@@ -477,6 +479,7 @@ async def run_scan(
         "force_extract": force_extract,
         "only_extract": only_extract,
         "only_detect": only_detect,
+        "profile": profile.value,
         "extract_concurrency": extract_concurrency,
         "detect_concurrency": detect_concurrency,
         "presidio_threshold": settings.detection.presidio_threshold,
@@ -546,7 +549,10 @@ async def run_scan(
                     async with sem_d:
                         try:
                             detections = await asyncio.to_thread(
-                                _run_detection_for_attachment, settings, item
+                                _run_detection_for_attachment,
+                                settings,
+                                item,
+                                profile,
                             )
                             await asyncio.to_thread(
                                 _persist_detections,

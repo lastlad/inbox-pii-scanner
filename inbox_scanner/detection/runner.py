@@ -8,7 +8,7 @@ from inbox_scanner.detection import (
     presidio_detector,
     privacy_filter_detector,
 )
-from inbox_scanner.detection.types import Detection, Finding
+from inbox_scanner.detection.types import Detection, Finding, Profile
 from inbox_scanner.logging import get_logger
 
 log = get_logger("detection.runner")
@@ -19,10 +19,16 @@ def run(
     *,
     presidio_threshold: float = 0.5,
     privacy_filter_threshold: float = 0.6,
+    profile: Profile = Profile.CRITICAL,
     skip_privacy_filter: bool = False,
 ) -> list[Detection]:
     """Run Presidio + Privacy Filter + custom regex on ``text`` and return
-    categorized detections.
+    categorized detections filtered to ``profile``.
+
+    Each detector still runs in full — filtering happens in the
+    categorizer. The cost saving from a tighter profile is therefore
+    modest (only DB writes are skipped), but the signal-to-noise
+    improvement for the user is significant.
 
     ``skip_privacy_filter`` is provided as a v1 escape hatch — the model
     is the slow part of the pipeline and turning it off lets us iterate
@@ -41,4 +47,4 @@ def run(
         )
     findings.extend(custom_regex.detect(text))
 
-    return categorizer.categorize_all(findings)
+    return categorizer.categorize_all(findings, profile)

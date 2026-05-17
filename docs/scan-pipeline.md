@@ -224,6 +224,39 @@ for the full history. Two consequences:
 - Existing scan rows with the removed subtypes get cleared on the
   next `scan` run (detection is rewritten per-scan).
 
+### Detection profile
+
+The categorizer applies a second filter on top of the
+`(detector, subtype) → category` map: a **criticality tier** that the
+user picks per scan via `--profile critical|standard|all`. Three tiers,
+each subsumes the previous:
+
+| Tier | Entities | When to use |
+|---|---|---|
+| `critical` (default) | Presidio: US_SSN, US_PASSPORT, US_DRIVER_LICENSE, US_ITIN, CREDIT_CARD, IBAN_CODE, US_BANK_NUMBER. Privacy Filter: `secret`. Custom regex: `mnemonic_phrase` | Default — irreversible-harm class only |
+| `standard` | Above + Privacy Filter `account_number` + custom regex `tax_form` | Cast a wider net; catches account-shaped numbers (student IDs, order IDs, tracking #s) and tax-form documents |
+| `all` | Above + all Privacy Filter `private_*` and Presidio `EMAIL_ADDRESS` / `PHONE_NUMBER` | Surfaces informational context (names, addresses, emails, phones, URLs, dates); these don't flag on their own but contribute to `category_summary` |
+
+The tier map lives in
+[`categorizer.py::_TIER_MAP`](../inbox_scanner/detection/categorizer.py)
+and is enforced by a coverage test
+(`tests/test_categorizer.py::test_every_mapped_subtype_has_a_tier`) —
+adding a new entity to `_CATEGORY_MAP` without classifying it fails
+loudly rather than silently defaulting to "always drop".
+
+The detectors themselves all run in full regardless of profile — the
+filter happens in `categorizer.categorize()` before persistence. The
+runtime cost saving from a tighter profile is therefore small (only DB
+writes are skipped); the signal-to-noise improvement for the user is
+significant. On the dev corpus, `--profile critical` returns 0 findings,
+`standard` returns 12 (same 9 messages flagged as `all`), `all` returns
+74. Same flagged set at standard and all; the difference is
+informational context.
+
+The chosen profile is persisted in `Scan.config_snapshot.profile`.
+Switching profiles requires a re-scan (per-scan rewrite semantics —
+see [data model § re-scan semantics](data-model.md#re-scan-semantics)).
+
 ### Categorizer
 
 [`categorizer.py`](../inbox_scanner/detection/categorizer.py). Single

@@ -86,6 +86,7 @@ uv run inbox-scanner scan [--force-extract] [--only-extract] [--only-detect]
 | `--force-extract` | `false` | Re-run extraction even on attachments already `extraction_status='extracted'`. Skips the content-hash cache |
 | `--only-extract` | `false` | Run stage A and stop; skip detection |
 | `--only-detect` | `false` | Skip extraction; run detection against the cached markdown only |
+| `--profile SCOPE` | `critical` | Detection filter: `critical` (default — irreversible-harm entities only: SSN, passport, credit card, IBAN, US bank, ITIN, driver's license, secret, BIP-39 mnemonic), `standard` (adds `account_number` + `tax_form`), or `all` (adds informational `other_pii` context: names, addresses, emails, phones, URLs, dates). Detection still runs in full; the profile filters what gets persisted. Persisted on the `Scan` row as `config_snapshot.profile` |
 
 `--only-extract` and `--only-detect` are **mutually exclusive**.
 Passing both fails with a Typer `BadParameter`.

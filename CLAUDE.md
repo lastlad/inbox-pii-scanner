@@ -59,7 +59,7 @@ The sync/scan split is the single most important design decision. Don't collapse
 - `extraction/router.py` — single mime-allowlist decision: Docling or `unparseable`. PDFs are not pre-classified; Docling auto-OCRs scanned ones via `do_ocr=True`.
 - `extraction/docling_extractor.py` — singleton `DocumentConverter`, `DocumentStream(name=, stream=BytesIO)` API, returns markdown via `result.document.export_to_markdown()`.
 - `detection/{presidio,privacy_filter,custom_regex}_detector.py` — three independent detectors returning `Finding` dataclasses.
-- `detection/categorizer.py` — single source of truth for `(detector, subtype) → user_category`. Adding a new detector subtype means adding a row here; the coverage test will fail if you forget.
+- `detection/categorizer.py` — single source of truth for `(detector, subtype) → user_category` (`_CATEGORY_MAP`) and `(detector, subtype) → criticality_tier` (`_TIER_MAP`). Adding a new detector subtype means adding a row to **both** maps; two coverage tests fail if either is missed. The tier (`critical | standard | all`) drives the `--profile` filter — see `Profile` in `detection/types.py`.
 - `pipelines/sync_pipeline.py` and `pipelines/scan_pipeline.py` — orchestrators, one per phase, share DB/blob/config but are otherwise independent.
 
 DB: `syncs`/`scans` are run tables; `messages`/`attachments` carry sync state; `detections`/`message_verdicts` are scan-scoped (rewritten every scan).
@@ -111,7 +111,7 @@ inbox-scanner reset  [--keep-attachments] [--keep-extractions] [--all] [-y]
 **Adding a new detector subtype:**
 1. Make the detector emit `Finding(detector=..., subtype="...")`.
 2. Add `(detector, subtype) → user_category` to `_CATEGORY_MAP` in `detection/categorizer.py`.
-3. `tests/test_categorizer.py::test_every_mapped_category_is_known` will fail if the chosen category isn't in `RISK_WEIGHTS` — fix that.
+3. Add `(detector, subtype) → tier` to `_TIER_MAP` in the same file (`critical | standard | all`). Two coverage tests fail if you skip either: `test_every_mapped_category_is_known` for the weight, `test_every_mapped_subtype_has_a_tier` for the tier.
 4. Add positive + negative tests in the appropriate `tests/test_*` file.
 
 **Changing a SQLAlchemy model:**

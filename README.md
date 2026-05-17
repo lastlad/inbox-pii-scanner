@@ -147,6 +147,18 @@ cost; after that, scans are fast (a couple of seconds per attachment).
 You can re-run `scan` any number of times; it only touches your local
 files, never Gmail.
 
+By default the scan reports only **critical** PII — things whose leak
+causes irreversible harm: Social Security numbers, passports, driver's
+licenses, credit cards, bank/IBAN numbers, ITINs, API keys/passwords,
+and crypto wallet mnemonics. To cast a wider net:
+
+```sh
+uv run inbox-scanner scan --profile standard   # adds account numbers + tax forms
+uv run inbox-scanner scan --profile all        # additionally records names, addresses, emails, phones
+```
+
+Switching profiles requires a re-scan (results are rewritten each run).
+
 ### Review in your browser
 
 ```sh

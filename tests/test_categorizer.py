@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from inbox_scanner.detection.categorizer import (
     _CATEGORY_MAP,
+    _TIER_MAP,
     categorize,
     categorize_all,
     compute_verdict,
@@ -18,6 +19,7 @@ from inbox_scanner.detection.types import (
     RISK_WEIGHTS,
     Detection,
     Finding,
+    Profile,
 )
 
 
@@ -33,41 +35,56 @@ def _f(detector: str, subtype: str, **kw) -> Finding:
     )
 
 
-# ---------- categorize() ----------
+# ---------- categorize() — mapping tests use Profile.ALL so the tier
+#            filter is a pass-through and we exercise the (detector,
+#            subtype) → category map in isolation. Profile-specific
+#            filtering is exercised in the section below.
 
 
 def test_presidio_ssn_is_gov_id():
-    d = categorize(_f("presidio", "US_SSN"))
+    d = categorize(_f("presidio", "US_SSN"), Profile.ALL)
     assert d is not None
     assert d.category == "gov_id"
 
 
 def test_presidio_credit_card_is_financial():
-    assert categorize(_f("presidio", "CREDIT_CARD")).category == "financial"
+    assert categorize(_f("presidio", "CREDIT_CARD"), Profile.ALL).category == "financial"
 
 
 def test_presidio_email_is_other_pii():
-    assert categorize(_f("presidio", "EMAIL_ADDRESS")).category == "other_pii"
+    assert categorize(_f("presidio", "EMAIL_ADDRESS"), Profile.ALL).category == "other_pii"
 
 
 def test_privacy_filter_account_number_is_financial():
-    assert categorize(_f("privacy_filter", "account_number")).category == "financial"
+    assert (
+        categorize(_f("privacy_filter", "account_number"), Profile.ALL).category
+        == "financial"
+    )
 
 
 def test_privacy_filter_secret_is_credentials():
-    assert categorize(_f("privacy_filter", "secret")).category == "credentials"
+    assert (
+        categorize(_f("privacy_filter", "secret"), Profile.ALL).category
+        == "credentials"
+    )
 
 
 def test_privacy_filter_person_is_other_pii():
-    assert categorize(_f("privacy_filter", "private_person")).category == "other_pii"
+    assert (
+        categorize(_f("privacy_filter", "private_person"), Profile.ALL).category
+        == "other_pii"
+    )
 
 
 def test_custom_regex_tax_is_tax():
-    assert categorize(_f("custom_regex", "tax_form")).category == "tax"
+    assert categorize(_f("custom_regex", "tax_form"), Profile.ALL).category == "tax"
 
 
 def test_custom_regex_mnemonic_is_credentials():
-    assert categorize(_f("custom_regex", "mnemonic_phrase")).category == "credentials"
+    assert (
+        categorize(_f("custom_regex", "mnemonic_phrase"), Profile.ALL).category
+        == "credentials"
+    )
 
 
 def test_dropped_custom_subtypes_no_longer_categorize():
@@ -82,15 +99,15 @@ def test_dropped_custom_subtypes_no_longer_categorize():
         "recovery_code",
         "legal_keyword",
     ):
-        assert categorize(_f("custom_regex", subtype)) is None
+        assert categorize(_f("custom_regex", subtype), Profile.ALL) is None
 
 
 def test_unknown_detector_dropped():
-    assert categorize(_f("unknown_detector", "anything")) is None
+    assert categorize(_f("unknown_detector", "anything"), Profile.ALL) is None
 
 
 def test_unknown_subtype_dropped():
-    assert categorize(_f("presidio", "MADE_UP_ENTITY")) is None
+    assert categorize(_f("presidio", "MADE_UP_ENTITY"), Profile.ALL) is None
 
 
 def test_categorize_all_filters_unmapped():
@@ -99,8 +116,77 @@ def test_categorize_all_filters_unmapped():
         _f("presidio", "MADE_UP_ENTITY"),  # dropped
         _f("custom_regex", "tax_form"),
     ]
-    out = categorize_all(findings)
+    out = categorize_all(findings, Profile.ALL)
     assert [d.category for d in out] == ["gov_id", "tax"]
+
+
+# ---------- profile filter ----------
+
+
+_CRITICAL_FINDING = ("presidio", "US_SSN")        # tier=critical
+_STANDARD_FINDING = ("custom_regex", "tax_form")  # tier=standard
+_ALL_TIER_FINDING = ("privacy_filter", "private_address")  # tier=all
+
+
+def test_profile_critical_drops_standard_and_all():
+    assert categorize(_f(*_CRITICAL_FINDING), Profile.CRITICAL) is not None
+    assert categorize(_f(*_STANDARD_FINDING), Profile.CRITICAL) is None
+    assert categorize(_f(*_ALL_TIER_FINDING), Profile.CRITICAL) is None
+
+
+def test_profile_standard_keeps_critical_and_standard_drops_all():
+    assert categorize(_f(*_CRITICAL_FINDING), Profile.STANDARD) is not None
+    assert categorize(_f(*_STANDARD_FINDING), Profile.STANDARD) is not None
+    assert categorize(_f(*_ALL_TIER_FINDING), Profile.STANDARD) is None
+
+
+def test_profile_all_keeps_everything():
+    assert categorize(_f(*_CRITICAL_FINDING), Profile.ALL) is not None
+    assert categorize(_f(*_STANDARD_FINDING), Profile.ALL) is not None
+    assert categorize(_f(*_ALL_TIER_FINDING), Profile.ALL) is not None
+
+
+def test_default_profile_is_critical():
+    """``categorize`` without a profile argument behaves like CRITICAL.
+    Pinned because the default is the CLI's default."""
+    # account_number is standard tier; default should filter it out.
+    assert categorize(_f("privacy_filter", "account_number")) is None
+    # US_SSN is critical; default should keep it.
+    assert categorize(_f("presidio", "US_SSN")) is not None
+
+
+def test_categorize_all_respects_profile():
+    findings = [
+        _f("presidio", "US_SSN"),                 # critical → keep
+        _f("custom_regex", "tax_form"),           # standard → keep at standard+
+        _f("privacy_filter", "private_address"),  # all → keep only at all
+    ]
+    assert len(categorize_all(findings, Profile.CRITICAL)) == 1
+    assert len(categorize_all(findings, Profile.STANDARD)) == 2
+    assert len(categorize_all(findings, Profile.ALL)) == 3
+
+
+# ---------- coverage: every mapped (detector, subtype) has a tier ----------
+
+
+def test_every_mapped_subtype_has_a_tier():
+    """Adding a new entity to ``_CATEGORY_MAP`` without classifying it
+    in ``_TIER_MAP`` would silently default to "drop at any profile",
+    which would be confusing. Fail loudly instead."""
+    mapped = {
+        (detector, subtype)
+        for detector, by_subtype in _CATEGORY_MAP.items()
+        for subtype in by_subtype
+    }
+    missing = mapped - set(_TIER_MAP.keys())
+    assert missing == set(), f"untiered entities: {sorted(missing)}"
+
+
+def test_tier_map_values_are_known():
+    """Tier strings must come from the documented set; a typo would
+    silently turn into "always drop"."""
+    for key, tier in _TIER_MAP.items():
+        assert tier in {"critical", "standard", "all"}, f"{key} has bad tier {tier!r}"
 
 
 # ---------- compute_verdict() ----------

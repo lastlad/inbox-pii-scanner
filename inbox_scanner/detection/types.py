@@ -8,6 +8,7 @@ user-facing category produced by the categorizer.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 
 
 @dataclass(frozen=True)
@@ -56,3 +57,46 @@ RISK_WEIGHTS: dict[str, int] = {
     "other_pii": 0,
 }
 RISK_SCORE_CAP = 100
+
+
+class Profile(str, Enum):
+    """How aggressive should detection be?
+
+    ``critical`` — only ever-flag-this-class entities (SSN, passport,
+    credit card, IBAN, US bank, ITIN, driver's license, secret, BIP-39
+    mnemonic). The default. Catches catastrophic-leak PII; filters out
+    sensitive-but-recoverable and informational findings entirely.
+
+    ``standard`` — adds ``account_number`` (Privacy Filter's broad-net
+    label) and ``tax_form`` (custom regex). Useful when you want to
+    flag tax-document emails and broadly-shaped account/order numbers
+    even when no SSN/CC was directly detected.
+
+    ``all`` — additionally records the informational ``other_pii``
+    entities (names, addresses, emails, phones, URLs, dates) so the UI
+    can show them as context. These don't flag a message on their own
+    but contribute to ``category_summary``.
+    """
+
+    CRITICAL = "critical"
+    STANDARD = "standard"
+    ALL = "all"
+
+
+# Lower index = more selective. ``profile_includes_tier`` is the only
+# function that should consult this — callers should use the helper.
+_TIER_ORDER: tuple[str, ...] = ("critical", "standard", "all")
+
+
+def profile_includes_tier(profile: Profile, tier: str) -> bool:
+    """True if ``profile`` should include findings whose tier is ``tier``.
+
+    A ``critical`` profile includes only critical-tier findings; a
+    ``standard`` profile includes critical + standard; ``all``
+    includes everything.
+    """
+    try:
+        return _TIER_ORDER.index(tier) <= _TIER_ORDER.index(profile.value)
+    except ValueError:
+        # Unknown tier string — be conservative and drop.
+        return False
