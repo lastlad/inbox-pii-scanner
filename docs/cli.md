@@ -61,6 +61,7 @@ uv run inbox-scanner sync [--limit N] [--since YYYY-MM-DD] [--resume / --no-resu
 |---|---|---|
 | `--limit N` | unbounded | Stop after N messages. Useful for first-run smoke tests |
 | `--since DATE` | none | Pass `after:DATE` to Gmail's query. ISO-8601 format only — invalid dates fail with a Typer `BadParameter` |
+| `--mailbox SCOPE` | `all` | `all` (default, matches every label except spam/trash — inbox + sent + archive), `inbox`, or `sent`. Persisted on the `Sync` row as `mailbox_scope` so `status` can show which scope each run used |
 | `--resume / --no-resume` | `--resume` | Default behavior is always idempotent; the flag is kept for documentation. `--no-resume` is currently a no-op |
 
 **Idempotent.** Skips messages that are fully synced. Re-pulls

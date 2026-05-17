@@ -27,7 +27,7 @@ from sqlalchemy import func, select
 from inbox_scanner.config import Settings, load_settings
 from inbox_scanner.db import make_engine, make_session_factory, session_scope
 from inbox_scanner.gmail.auth import CredentialsMissing, run_oauth_flow
-from inbox_scanner.gmail.sync import run_sync
+from inbox_scanner.gmail.sync import MailboxScope, run_sync
 from inbox_scanner.logging import configure_logging, get_logger
 from inbox_scanner.migrations import apply_migrations
 from inbox_scanner.models import Attachment, Detection, Message, MessageVerdict, Scan, Sync
@@ -84,14 +84,28 @@ def sync(
         Optional[str],
         typer.Option(help="Only fetch messages on or after this date (YYYY-MM-DD)."),
     ] = None,
+    mailbox: Annotated[
+        MailboxScope,
+        typer.Option(
+            case_sensitive=False,
+            help=(
+                "Which Gmail scope to scan. 'all' (default) matches every "
+                "label except spam/trash — inbox + sent + archive. 'inbox' "
+                "or 'sent' narrows to that label only. Sensitive documents "
+                "you've sent often matter more than what was sent to you."
+            ),
+        ),
+    ] = MailboxScope.ALL,
     resume: Annotated[
         bool, typer.Option(help="Resume an interrupted sync (idempotent default).")
     ] = True,
 ) -> None:
-    """Phase 1: list Gmail messages with attachments and write metadata stubs.
+    """Phase 1: list Gmail messages with attachments, download their bytes,
+    and write metadata + attachment stubs to the local DB.
 
-    Step-2 scope: does **not** download attachment bytes yet — that lands in
-    step 3. Use ``inbox-scanner status`` to see what was captured.
+    Idempotent and resumable. Re-runs pick up only the messages that aren't
+    fully synced; Ctrl-C is safe at any time. Use ``inbox-scanner status``
+    to see what's been captured.
     """
     if since is not None:
         try:
@@ -100,7 +114,13 @@ def sync(
             raise typer.BadParameter(f"--since must be YYYY-MM-DD: {e}") from None
     settings = _bootstrap("sync")
     log = get_logger("cli.sync")
-    log.info("sync.invoked", limit=limit, since=since, resume=resume)
+    log.info(
+        "sync.invoked",
+        limit=limit,
+        since=since,
+        mailbox=mailbox.value,
+        resume=resume,
+    )
 
     engine = make_engine(settings.db_path)
     session_factory = make_session_factory(engine)
@@ -132,6 +152,7 @@ def sync(
                     session_factory,
                     limit=limit,
                     since=since,
+                    mailbox=mailbox,
                     on_total_known=_on_total_known,
                     on_message_done=_on_message_done,
                 )
@@ -353,6 +374,7 @@ def status() -> None:
     sync_table.add_column("v")
     sync_table.add_row("id", str(last_sync.id))
     sync_table.add_row("status", last_sync.status)
+    sync_table.add_row("mailbox scope", last_sync.mailbox_scope or "all (legacy row)")
     sync_table.add_row("started", str(last_sync.started_at))
     sync_table.add_row("finished", str(last_sync.finished_at))
     sync_table.add_row("messages seen", str(last_sync.total_messages))

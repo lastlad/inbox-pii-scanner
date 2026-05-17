@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -61,7 +62,19 @@ def load_credentials(token_path: Path) -> Credentials:
     if creds.valid:
         return creds
     if creds.expired and creds.refresh_token:
-        creds.refresh(Request())
+        try:
+            creds.refresh(Request())
+        except RefreshError as e:
+            # Refresh token has expired, been revoked, or the OAuth client
+            # changed. Either way the only fix is a fresh interactive
+            # ``inbox-scanner auth`` — don't let the raw Google traceback
+            # bubble up to the user.
+            raise CredentialsMissing(
+                f"Saved token at {token_path} could not be refreshed "
+                f"({e}). This usually means the refresh token has "
+                "expired or been revoked.\n"
+                "Run `inbox-scanner auth` to re-authenticate."
+            ) from None
         token_path.write_text(creds.to_json())
         return creds
     raise CredentialsMissing(

@@ -120,6 +120,17 @@ To test the setup with a small batch first:
 uv run inbox-scanner sync --limit 20
 ```
 
+By default sync pulls every message with an attachment — inbox, sent, and
+archive. If you only care about what *you* sent (often the more sensitive
+case — IDs sent to verify accounts, contracts to lawyers, forms to
+accountants), narrow the scope:
+
+```sh
+uv run inbox-scanner sync --mailbox sent
+```
+
+`--mailbox inbox` is also available if you want received-only.
+
 ### Scan the attachments
 
 ```sh

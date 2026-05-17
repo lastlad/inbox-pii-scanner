@@ -31,6 +31,12 @@ class Sync(Base):
     total_messages: Mapped[int | None] = mapped_column(Integer)
     synced_messages: Mapped[int | None] = mapped_column(Integer)
     error: Mapped[str | None] = mapped_column(Text)
+    # Which Gmail scope the operator asked for this run: 'all' (current
+    # default; ``has:attachment`` alone — inbox + sent + archived),
+    # 'inbox' (``has:attachment in:inbox``), or 'sent'
+    # (``has:attachment in:sent``). Nullable so pre-migration rows
+    # remain valid.
+    mailbox_scope: Mapped[str | None] = mapped_column(String(16))
 
 
 class Scan(Base):

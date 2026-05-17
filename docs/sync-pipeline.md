@@ -62,16 +62,27 @@ sequenceDiagram
 
 ### 1. List candidate messages
 
-Calls `users.messages.list(userId='me', q='has:attachment')` with
-optional `after:YYYY/MM/DD` filter when `--since` is passed. Paginates
-through `nextPageToken` until exhausted or `--limit` is reached.
+Calls `users.messages.list(userId='me', q=<query>)` where `<query>` is
+built by [`_build_query`](../inbox_scanner/gmail/sync.py):
 
-Output: a flat `[(message_id, thread_id), ...]` list.
+| `--mailbox` | Query string |
+|---|---|
+| `all` (default) | `has:attachment` (every label except spam/trash) |
+| `inbox` | `has:attachment in:inbox` |
+| `sent` | `has:attachment in:sent` |
 
-Per the Gmail API docs, this returns ~30% noise — messages whose only
-"attachment" is an inline tracking pixel or meeting invite. The
-metadata fetch in stage 2 walks MIME parts; the skip filters in stage
-3 throw those away.
+When `--since YYYY-MM-DD` is passed, ` after:YYYY/MM/DD` is appended.
+
+Paginates through `nextPageToken` until exhausted or `--limit` is
+reached. Output: a flat `[(message_id, thread_id), ...]` list.
+
+The selected scope is persisted to `syncs.mailbox_scope` so the
+`status` command can show which scope each historical sync ran with.
+
+Per the Gmail API docs, the bare `has:attachment` query returns ~30%
+noise — messages whose only "attachment" is an inline tracking pixel
+or meeting invite. The metadata fetch in stage 2 walks MIME parts;
+the skip filters in stage 3 throw those away.
 
 ### 2. Filter to messages that need work
 

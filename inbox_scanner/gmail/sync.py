@@ -40,6 +40,7 @@ from __future__ import annotations
 import asyncio
 import random
 from datetime import datetime, timezone
+from enum import Enum
 from typing import Any
 
 from googleapiclient.errors import HttpError
@@ -91,6 +92,22 @@ RETRYABLE_STATUSES = frozenset({429, 500, 502, 503, 504})
 log = get_logger("gmail.sync")
 
 
+class MailboxScope(str, Enum):
+    """Which subset of the user's mail to scan.
+
+    ``ALL`` is the default and matches the original behaviour: bare
+    ``has:attachment`` matches mail across every label except spam/trash
+    (so inbox + sent + archive are all included). The other two narrow
+    that down to the named label only — useful when the user wants to
+    focus on, say, sensitive documents they've *sent* (which often
+    matters more than what was sent *to* them).
+    """
+
+    ALL = "all"
+    INBOX = "inbox"
+    SENT = "sent"
+
+
 # ---------- pure helpers ----------
 
 
@@ -98,8 +115,14 @@ def _utc_naive_now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-def _build_query(since: str | None) -> str:
+def _build_query(since: str | None, mailbox: MailboxScope = MailboxScope.ALL) -> str:
     parts = ["has:attachment"]
+    if mailbox == MailboxScope.INBOX:
+        parts.append("in:inbox")
+    elif mailbox == MailboxScope.SENT:
+        parts.append("in:sent")
+    # ALL adds no additional filter — bare ``has:attachment`` already
+    # matches every label except spam/trash.
     if since:
         # CLI validates ISO format; Gmail expects YYYY/MM/DD.
         parts.append(f"after:{since.replace('-', '/')}")
@@ -382,13 +405,17 @@ def _mark_message_error(
             msg.sync_error = error
 
 
-def _create_sync_row(session_factory: sessionmaker[Session]) -> int:
+def _create_sync_row(
+    session_factory: sessionmaker[Session],
+    mailbox: MailboxScope = MailboxScope.ALL,
+) -> int:
     with session_scope(session_factory) as session:
         sync = Sync(
             started_at=_utc_naive_now(),
             status="running",
             total_messages=0,
             synced_messages=0,
+            mailbox_scope=mailbox.value,
         )
         session.add(sync)
         session.flush()
@@ -537,6 +564,7 @@ async def run_sync(
     *,
     limit: int | None = None,
     since: str | None = None,
+    mailbox: MailboxScope = MailboxScope.ALL,
     concurrency: int = 4,
     rate_rps: float = 20.0,
     on_total_known=None,  # called once with the total count to sync
@@ -547,17 +575,18 @@ async def run_sync(
     enumeration_client = GmailClient(creds)
     bucket = TokenBucket(rate=rate_rps)
 
-    sync_id = await asyncio.to_thread(_create_sync_row, session_factory)
+    sync_id = await asyncio.to_thread(_create_sync_row, session_factory, mailbox)
     log.info(
         "sync.start",
         sync_id=sync_id,
         limit=limit,
         since=since,
+        mailbox=mailbox.value,
         concurrency=concurrency,
         rate_rps=rate_rps,
     )
 
-    query = _build_query(since)
+    query = _build_query(since, mailbox)
 
     try:
         all_ids = await _enumerate_message_ids(

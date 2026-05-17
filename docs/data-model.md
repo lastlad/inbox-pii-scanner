@@ -49,6 +49,7 @@ One row per `inbox-scanner sync` invocation.
 | `total_messages` | INT | Listed by `messages.list` |
 | `synced_messages` | INT | Successfully processed this run |
 | `error` | TEXT | top-level failure message |
+| `mailbox_scope` | TEXT | `all` (default), `inbox`, or `sent` — which `--mailbox` flag the operator used. Nullable so pre-migration rows remain valid; the `status` command renders them as "all (legacy row)" |
 
 The `Message.sync_id` FK points to the sync that most recently
 processed each message. On a resumed sync, that's the new sync's id.
@@ -251,6 +252,7 @@ generating new revisions.
 |---|---|---|
 | `515b1b73d67d` | `initial_schema` | Create all six tables + indexes |
 | `1c965f28e09a` | `stable_attachment_composite_via_partid` | Add `part_id` + `gmail_attachment_id` columns; wipe pre-migration `attachments` rows (their composite IDs were keyed on the volatile attachment_id and are useless) |
+| `a0f801a1c96c` | `add_mailbox_scope_to_syncs` | Add nullable `syncs.mailbox_scope` column for the `--mailbox` flag |
 
 When changing the schema:
 
