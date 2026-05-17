@@ -226,8 +226,8 @@ def test_flag_on_any_real_pii():
 def test_top_category_picks_highest_weight():
     """When multiple categories present, the one with the highest risk
     weight wins. tax(5) < financial(7) < credentials(10) == gov_id(10)."""
-    v = compute_verdict([_det("tax"), _det("financial"), _det("legal")])
-    assert v["top_category"] == "financial"
+    v = compute_verdict([_det("tax"), _det("financial"), _det("credentials")])
+    assert v["top_category"] == "credentials"
 
 
 def test_top_category_breaks_ties_by_count():

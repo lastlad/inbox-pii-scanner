@@ -71,16 +71,6 @@ class ExtractionConfig(BaseModel):
 class DetectionConfig(BaseModel):
     presidio_threshold: float = 0.5
     privacy_filter_threshold: float = 0.6
-    enabled_categories: list[str] = Field(
-        default_factory=lambda: [
-            "gov_id",
-            "financial",
-            "tax",
-            "medical",
-            "credentials",
-            "legal",
-        ]
-    )
 
 
 class ServerConfig(BaseModel):

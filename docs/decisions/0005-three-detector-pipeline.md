@@ -134,6 +134,9 @@ forms) and `mnemonic_phrase` (BIP-39 wordlist, irreplaceable for
 crypto-seed leak detection).
 
 **Consequence:** the `medical` and `legal` user categories no longer
-have any v1 feeders. Kept in `RISK_WEIGHTS` and `FLAGGABLE_CATEGORIES`
-so a future custom pattern can re-populate them without a categorizer
-change.
+had any v1 feeders after this pare-down. Originally kept in
+`RISK_WEIGHTS` and `FLAGGABLE_CATEGORIES` as placeholders; later
+removed entirely as part of a broader v1 simplification (no orphan
+concepts in the codebase). Re-add them to `RISK_WEIGHTS` +
+`FLAGGABLE_CATEGORIES` + the categorizer's registry if a future
+detector ships a feeder for either.

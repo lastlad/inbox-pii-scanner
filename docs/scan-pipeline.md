@@ -215,14 +215,10 @@ and `legal_keyword`. Those were dropped in the v1 simplification —
 either they duplicated Privacy Filter's `secret` / `account_number`
 labels at lower precision, or they were bare keyword spotters too
 imprecise to be actionable. See custom_regex.py's module docstring
-for the full history. Two consequences:
-
-- The `medical` and `legal` user categories currently have no v1
-  feeders. They remain in `RISK_WEIGHTS` and `FLAGGABLE_CATEGORIES`
-  so a future detector can repopulate them without a categorizer
-  change.
-- Existing scan rows with the removed subtypes get cleared on the
-  next `scan` run (detection is rewritten per-scan).
+for the full history. The `medical` and `legal` user categories were
+removed at the same time (no remaining feeder) — re-add them to
+`FLAGGABLE_CATEGORIES` + `RISK_WEIGHTS` + the categorizer's registry
+if you ship a detector for either.
 
 ### Detection profile
 

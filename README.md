@@ -1,8 +1,8 @@
 # Inbox PII Scanner
 
 A local tool that scans your Gmail inbox for emails with sensitive
-attachments — IDs, financial documents, tax forms, medical records,
-credentials — and shows you which ones to clean up.
+attachments — IDs, financial documents, tax forms, credentials — and
+shows you which ones to clean up.
 
 Everything runs on your computer. Your inbox content never leaves your
 machine. The tool can only **read** your mail, never modify it.

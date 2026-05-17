@@ -93,7 +93,7 @@ class Attachment(Base):
     downloaded_at: Mapped[datetime | None] = mapped_column(DateTime)
 
     last_scan_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("scans.id"))
-    extraction_route: Mapped[str | None] = mapped_column(String(32))  # docling | qwen-vl | unparseable
+    extraction_route: Mapped[str | None] = mapped_column(String(32))  # docling | unparseable
     extraction_status: Mapped[str | None] = mapped_column(String(32))  # extracted | unparseable | pending
     extracted_text_path: Mapped[str | None] = mapped_column(Text)
     extracted_at: Mapped[datetime | None] = mapped_column(DateTime)

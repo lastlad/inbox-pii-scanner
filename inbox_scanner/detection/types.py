@@ -38,22 +38,22 @@ class Detection:
 
 
 # Categories that flag a message for review. ``other_pii`` deliberately
-# isn't here — names/addresses/emails alone are too noisy to flag on,
-# and the plan's UX is "flag if the message has at least one finding in
-# one of these six categories".
+# isn't here — names/addresses/emails alone are too noisy to flag on.
+# The plan also defined ``medical`` and ``legal``; both were removed
+# in the v1 simplification (no detector fed them after the custom regex
+# pare-down — see docs/decisions/0005). Re-add here + the categorizer's
+# registry if you ever ship a detector for them.
 FLAGGABLE_CATEGORIES: frozenset[str] = frozenset(
-    {"gov_id", "financial", "tax", "medical", "credentials", "legal"}
+    {"gov_id", "financial", "tax", "credentials"}
 )
 
 
-# Plan's risk weights. Sum across detections, cap at 100.
+# Per-category risk weight. Sum across a message's detections, cap at 100.
 RISK_WEIGHTS: dict[str, int] = {
     "gov_id": 10,
     "credentials": 10,
     "financial": 7,
-    "medical": 7,
     "tax": 5,
-    "legal": 3,
     "other_pii": 0,
 }
 RISK_SCORE_CAP = 100

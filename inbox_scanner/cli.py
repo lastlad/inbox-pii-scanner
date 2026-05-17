@@ -97,9 +97,6 @@ def sync(
             ),
         ),
     ] = MailboxScope.ALL,
-    resume: Annotated[
-        bool, typer.Option(help="Resume an interrupted sync (idempotent default).")
-    ] = True,
 ) -> None:
     """Phase 1: list Gmail messages with attachments, download their bytes,
     and write metadata + attachment stubs to the local DB.
@@ -120,7 +117,6 @@ def sync(
         limit=limit,
         since=since,
         mailbox=mailbox.value,
-        resume=resume,
     )
 
     engine = make_engine(settings.db_path)

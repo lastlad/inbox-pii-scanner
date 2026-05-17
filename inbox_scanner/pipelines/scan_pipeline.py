@@ -121,8 +121,11 @@ def _select_extract_work(
             .where(Attachment.blob_path.is_not(None))
         )
         if not force_extract:
-            # Skip attachments already extracted (or marked unparseable);
-            # leave qwen-vl pending so step 5 picks them up automatically.
+            # Pick up anything that hasn't been successfully extracted
+            # yet — pending rows (deferred from a prior partial scan)
+            # and rows with no extraction_status at all (freshly
+            # downloaded). Rows already at 'extracted' or 'unparseable'
+            # are skipped; use --force-extract to retry them.
             stmt = stmt.where(
                 (Attachment.extraction_status == EXT_PENDING)
                 | (Attachment.extraction_status.is_(None))
