@@ -15,7 +15,7 @@ Local-first, **strictly read-only** Gmail PII scanner. Two-phase design:
 
 ## Repository status
 
-v1 complete. All 10 build-order steps shipped, 114 tests passing, browser-tested on the dev corpus. The user wants to review everything before declaring shipped — don't say "v1 done" in commits or docs.
+v1 complete. All 10 build-order steps shipped, 118 tests passing, browser-tested on the dev corpus. The user wants to review everything before declaring shipped — don't say "v1 done" in commits or docs.
 
 ## Working environment
 
@@ -77,7 +77,7 @@ DB: `syncs`/`scans` are run tables; `messages`/`attachments` carry sync state; `
 
 ## Non-goals (don't add without explicit ask)
 
-No write access to Gmail. No daemon/incremental mode. No email-body scanning. No non-US ID patterns. No user-configurable detection rules. No encrypted-at-rest DB. No Outlook/IMAP/Yahoo. No multi-user. No bulk-actions UI. v2 backlog is at the bottom of the plan.
+No write access to Gmail. No daemon/incremental mode. No email-body scanning. No further national-ID expansion beyond the Tier A international set (UK, ES, IT, AU, SG, IN, PL, FI — see [ADR 0006](docs/decisions/0006-international-pii-tier-a.md)). No user-configurable detection rules. No encrypted-at-rest DB. No Outlook/IMAP/Yahoo. No multi-user. No bulk-actions UI. v2 backlog is at the bottom of the plan.
 
 ## CLI surface
 
@@ -101,7 +101,7 @@ inbox-scanner reset  [--keep-attachments] [--keep-extractions] [--all] [-y]
 
 ## Testing
 
-- 114 tests, ~4 s wall clock. `uv run pytest -q`.
+- 118 tests, ~6 s wall clock. `uv run pytest -q`.
 - Heavy detection deps (Presidio + Privacy Filter) are loaded lazily; tests that exercise them stay fast because singletons load once per process.
 - **Don't write tests that hit real Gmail or load real models.** Unit-test pure helpers (router, categorizer, regex patterns, span merger, blob storage, rate limiter, reset planning). Integration-test the API via FastAPI's `TestClient` with `fresh_data_dir`.
 - After model or schema changes: regenerate migrations against a tmpdir (see the alembic command in the table above).

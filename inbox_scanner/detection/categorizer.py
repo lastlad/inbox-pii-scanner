@@ -57,7 +57,7 @@ class _Entry(NamedTuple):
 # coverage test enforces that ``tier`` is a known value and that
 # ``category`` has a weight in RISK_WEIGHTS.
 _REGISTRY: dict[tuple[str, str], _Entry] = {
-    # ---- Presidio (9 entities) -----------------------------------------
+    # ---- Presidio US / global (9 entities) -----------------------------
     ("presidio", "US_SSN"):              _Entry("gov_id",      "critical"),
     ("presidio", "US_PASSPORT"):         _Entry("gov_id",      "critical"),
     ("presidio", "US_DRIVER_LICENSE"):   _Entry("gov_id",      "critical"),
@@ -67,6 +67,21 @@ _REGISTRY: dict[tuple[str, str], _Entry] = {
     ("presidio", "US_BANK_NUMBER"):      _Entry("financial",   "critical"),
     ("presidio", "EMAIL_ADDRESS"):       _Entry("other_pii",   "all"),
     ("presidio", "PHONE_NUMBER"):        _Entry("other_pii",   "all"),
+    # ---- Presidio international Tier A (11 entities) -------------------
+    # Strong-format / checksum-validated national IDs. AU_TFN and IN_PAN
+    # are tax IDs (matching US_ITIN's precedent); everything else is a
+    # personal/government identifier and goes under gov_id.
+    ("presidio", "UK_NHS"):                      _Entry("gov_id",  "critical"),
+    ("presidio", "UK_NINO"):                     _Entry("gov_id",  "critical"),
+    ("presidio", "ES_NIF"):                      _Entry("gov_id",  "critical"),
+    ("presidio", "IT_FISCAL_CODE"):              _Entry("gov_id",  "critical"),
+    ("presidio", "AU_TFN"):                      _Entry("tax",     "critical"),
+    ("presidio", "AU_MEDICARE"):                 _Entry("gov_id",  "critical"),
+    ("presidio", "SG_NRIC_FIN"):                 _Entry("gov_id",  "critical"),
+    ("presidio", "IN_AADHAAR"):                  _Entry("gov_id",  "critical"),
+    ("presidio", "IN_PAN"):                      _Entry("tax",     "critical"),
+    ("presidio", "PL_PESEL"):                    _Entry("gov_id",  "critical"),
+    ("presidio", "FI_PERSONAL_IDENTITY_CODE"):   _Entry("gov_id",  "critical"),
     # ---- Privacy Filter (8 entities) -----------------------------------
     ("privacy_filter", "secret"):           _Entry("credentials", "critical"),
     ("privacy_filter", "account_number"):   _Entry("financial",   "all"),

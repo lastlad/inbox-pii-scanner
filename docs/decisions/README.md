@@ -11,6 +11,7 @@ Decision, Consequences — and is numbered sequentially.
 | [0003](0003-single-extraction-backend.md) | Collapse Docling + Qwen-VL to Docling-only | Accepted (supersedes a part of the original plan) |
 | [0004](0004-attachment-key-uses-part-id.md) | Composite primary key on `attachments` uses `part_id` | Accepted (supersedes a part of the original plan) |
 | [0005](0005-three-detector-pipeline.md) | Three detectors (Presidio + Privacy Filter + custom regex) | Accepted |
+| [0006](0006-international-pii-tier-a.md) | International Tier A national IDs in Presidio | Accepted |
 
 ## When to write a new ADR
 
