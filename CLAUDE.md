@@ -15,7 +15,7 @@ Local-first, **strictly read-only** Gmail PII scanner. Two-phase design:
 
 ## Repository status
 
-v1 complete. All 10 build-order steps shipped, 121 tests passing, browser-tested on the dev corpus. The user wants to review everything before declaring shipped — don't say "v1 done" in commits or docs.
+v1 complete. All 10 build-order steps shipped, 119 tests passing, browser-tested on the dev corpus. The user wants to review everything before declaring shipped — don't say "v1 done" in commits or docs.
 
 ## Working environment
 
@@ -101,7 +101,7 @@ inbox-scanner reset  [--keep-attachments] [--keep-extractions] [--all] [-y]
 
 ## Testing
 
-- 121 tests, ~6 s wall clock. `uv run pytest -q`.
+- 119 tests, ~6 s wall clock. `uv run pytest -q`.
 - Heavy detection deps (Presidio + Privacy Filter) are loaded lazily; tests that exercise them stay fast because singletons load once per process.
 - **Don't write tests that hit real Gmail or load real models.** Unit-test pure helpers (router, categorizer, regex patterns, span merger, blob storage, rate limiter, reset planning). Integration-test the API via FastAPI's `TestClient` with `fresh_data_dir`.
 - After model or schema changes: regenerate migrations against a tmpdir (see the alembic command in the table above).

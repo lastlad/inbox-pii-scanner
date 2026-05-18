@@ -30,7 +30,6 @@ _POSITIVES: list[tuple[str, str]] = [
     ("SG_NRIC_FIN",               "NRIC S1234567D."),
     ("IN_AADHAAR",                "Aadhaar number 234123412346."),
     ("IN_PAN",                    "PAN card no.: ABCPK1234D."),
-    ("PL_PESEL",                  "PESEL 44051401452."),
     ("FI_PERSONAL_IDENTITY_CODE", "Henkilötunnus 131052-308T."),
 ]
 
@@ -65,8 +64,6 @@ _NEGATIVES: list[tuple[str, str]] = [
     ("IN_AADHAAR",  "Number 123456789012 is not a real Aadhaar."),
     # PAN with invalid 4th character (entity-type letter must be valid).
     ("IN_PAN",      "Code ABCDX1234F is not a PAN."),
-    # PESEL with broken checksum.
-    ("PL_PESEL",    "Numer 12345678901 to nie PESEL."),
 ]
 
 

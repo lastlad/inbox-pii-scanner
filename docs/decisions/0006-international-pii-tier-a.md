@@ -44,12 +44,12 @@ Selected entities:
 | `SG_NRIC_FIN` | Singapore | Character-substitution checksum |
 | `IN_AADHAAR` | India | Verhoeff checksum |
 | `IN_PAN` | India | Strict 10-char format (entity-type letter enumerated) |
-| `PL_PESEL` | Poland | Weighted-mod-10 checksum |
+| `PL_PESEL` | Poland | Weighted-mod-10 checksum — **dropped, see revision below** |
 | `FI_PERSONAL_IDENTITY_CODE` | Finland | Character-substitution checksum |
 
-All eleven map to the `gov_id` user category except `AU_TFN` and
+All eleven mapped to the `gov_id` user category except `AU_TFN` and
 `IN_PAN`, which are tax IDs and follow the `US_ITIN` precedent under
-`tax`. All eleven are tier `critical` — the checksum precision is
+`tax`. All were tier `critical` — the checksum precision was deemed
 high enough to warrant including them in the default profile.
 
 ### Language registration
@@ -136,3 +136,35 @@ clear the threshold.
 - If a Tier A recognizer turns out to over-fire on real corpora, the
   fix is to move it from tier `critical` to tier `all` in
   `_REGISTRY` — no code changes required.
+
+## Revision: 2026-05-18 — `PL_PESEL` dropped
+
+The Mod-10 weighted checksum gates ~1 in 10 random 11-digit numbers,
+which sounded acceptable in isolation but didn't survive contact with
+real inbox data. Personal Gmail accounts contain large numbers of
+11-digit values that pass the check by coincidence: shipping tracking
+numbers (USPS/UPS/FedEx are 12-20 digits but truncated forms appear),
+e-commerce order IDs, bank transaction references, Amazon order
+numbers, etc. Each generates a false positive in the `gov_id`
+category, which is the worst possible bucket for FPs since `gov_id` is
+the highest-weighted flaggable category in `RISK_WEIGHTS`.
+
+The other Tier A recognizers don't share this failure mode because
+they're either longer (Aadhaar's 12 digits + Verhoeff, IT_FISCAL_CODE's
+16 alphanumeric with positional rules) or have non-numeric structure
+that excludes random digit runs (IN_PAN's strict 5-letter prefix +
+4-digit + 1-letter, NIF's terminating check letter). Only PESEL is
+"11 digits + simple weighted checksum" — the lowest signal-to-noise
+shape in the set.
+
+Outcome:
+
+- Removed from `PRESIDIO_ENTITIES`, the categorizer registry, the
+  pipeline's English-override registration, and the test file.
+- Other ten Tier A entries retained — their FP rates on the dev
+  corpus didn't reproduce the same pattern.
+- Future re-add path: if a user with a Polish corpus needs PESEL
+  coverage, the right place to put it back is tier `all` (not
+  `critical`) so it's recorded but doesn't drive the per-message flag
+  / risk score. That requires no code change beyond restoring the
+  registry row.

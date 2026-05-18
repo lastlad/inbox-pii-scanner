@@ -9,13 +9,19 @@ Presidio's NER would just duplicate noise.
 
 On top of those, we explicitly register a Tier A international set:
 ``UK_NHS``, ``UK_NINO``, ``ES_NIF``, ``IT_FISCAL_CODE``, ``AU_TFN``,
-``AU_MEDICARE``, ``SG_NRIC_FIN``, ``IN_AADHAAR``, ``IN_PAN``, ``PL_PESEL``,
-``FI_PERSONAL_IDENTITY_CODE``. All eleven have strict format rules and/or
+``AU_MEDICARE``, ``SG_NRIC_FIN``, ``IN_AADHAAR``, ``IN_PAN``,
+``FI_PERSONAL_IDENTITY_CODE``. All ten have strict format rules and/or
 checksums, so their false-positive rate on English-language email is low.
-The four whose stock language code is non-English (Spanish, Italian,
-Polish, Finnish) are re-registered with ``supported_language="en"`` —
+The three whose stock language code is non-English (Spanish, Italian,
+Finnish) are re-registered with ``supported_language="en"`` —
 the underlying patterns are language-agnostic regex over Latin
 characters and digits, so cross-language reuse is safe.
+
+``PL_PESEL`` was part of the original Tier A but was dropped after
+empirical review: the Mod-10 checksum admits ~1 in 10 random 11-digit
+numbers, and personal inboxes are full of order/tracking/transaction
+IDs of that length that pass the check by coincidence. See
+[ADR 0006](../../docs/decisions/0006-international-pii-tier-a.md).
 
 The :class:`AnalyzerEngine` is heavy (loads spaCy + recognizer registry on
 first construction), so we instantiate it lazily as a process-singleton.
@@ -36,7 +42,6 @@ from presidio_analyzer.predefined_recognizers import (
     InAadhaarRecognizer,
     InPanRecognizer,
     ItFiscalCodeRecognizer,
-    PlPeselRecognizer,
     SgFinRecognizer,
     UkNinoRecognizer,
 )
@@ -65,7 +70,6 @@ _INTERNATIONAL_RECOGNIZER_CLASSES: tuple[type, ...] = (
 _INTERNATIONAL_RECOGNIZER_CLASSES_REQUIRING_EN_OVERRIDE: tuple[type, ...] = (
     EsNifRecognizer,
     ItFiscalCodeRecognizer,
-    PlPeselRecognizer,
     FiPersonalIdentityCodeRecognizer,
 )
 
@@ -90,7 +94,6 @@ PRESIDIO_ENTITIES: tuple[str, ...] = (
     "SG_NRIC_FIN",
     "IN_AADHAAR",
     "IN_PAN",
-    "PL_PESEL",
     "FI_PERSONAL_IDENTITY_CODE",
 )
 

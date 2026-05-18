@@ -162,7 +162,7 @@ US_BANK_NUMBER, US_ITIN, EMAIL_ADDRESS, PHONE_NUMBER
 
 # International Tier A — strong-format / checksum-validated
 UK_NHS, UK_NINO, ES_NIF, IT_FISCAL_CODE, AU_TFN, AU_MEDICARE,
-SG_NRIC_FIN, IN_AADHAAR, IN_PAN, PL_PESEL, FI_PERSONAL_IDENTITY_CODE
+SG_NRIC_FIN, IN_AADHAAR, IN_PAN, FI_PERSONAL_IDENTITY_CODE
 ```
 
 Why explicit allowlist: Presidio's stock recognizers include generic
@@ -170,11 +170,11 @@ Why explicit allowlist: Presidio's stock recognizers include generic
 contextual-entity detection from Privacy Filter (below) and skip those
 to keep the noise floor low.
 
-The four international recognizers whose stock language code is non-English
-(`ES_NIF`, `IT_FISCAL_CODE`, `PL_PESEL`, `FI_PERSONAL_IDENTITY_CODE`) are
-re-registered with `supported_language="en"` at engine construction; the
-patterns are language-agnostic regex over Latin characters and digits, so
-this just makes them participate in our English-only `analyze()` calls.
+The three international recognizers whose stock language code is non-English
+(`ES_NIF`, `IT_FISCAL_CODE`, `FI_PERSONAL_IDENTITY_CODE`) are re-registered
+with `supported_language="en"` at engine construction; the patterns are
+language-agnostic regex over Latin characters and digits, so this just makes
+them participate in our English-only `analyze()` calls.
 
 - NLP engine: spaCy `en_core_web_sm` (~12 MB). The default
   `en_core_web_lg` (580 MB) buys nothing for the pattern-based
@@ -221,7 +221,7 @@ subsumes the previous:
 
 | Tier | Entities | When to use |
 |---|---|---|
-| `critical` (default) | Presidio: US_SSN, US_PASSPORT, US_DRIVER_LICENSE, US_ITIN, CREDIT_CARD, IBAN_CODE, US_BANK_NUMBER, plus the Tier A international IDs (UK_NHS, UK_NINO, ES_NIF, IT_FISCAL_CODE, AU_TFN, AU_MEDICARE, SG_NRIC_FIN, IN_AADHAAR, IN_PAN, PL_PESEL, FI_PERSONAL_IDENTITY_CODE). Privacy Filter: `secret` | Default — irreversible-harm class only |
+| `critical` (default) | Presidio: US_SSN, US_PASSPORT, US_DRIVER_LICENSE, US_ITIN, CREDIT_CARD, IBAN_CODE, US_BANK_NUMBER, plus the Tier A international IDs (UK_NHS, UK_NINO, ES_NIF, IT_FISCAL_CODE, AU_TFN, AU_MEDICARE, SG_NRIC_FIN, IN_AADHAAR, IN_PAN, FI_PERSONAL_IDENTITY_CODE). Privacy Filter: `secret` | Default — irreversible-harm class only |
 | `all` | Above + Privacy Filter `account_number` (still flags via the financial category) + the informational `other_pii` entities: Presidio `EMAIL_ADDRESS` / `PHONE_NUMBER`, Privacy Filter `private_*` (address, email, person, phone, url, date) | Surfaces the broader catches; `private_*` entries don't flag on their own but contribute to `category_summary` |
 
 An intermediate `standard` profile shipped in earlier iterations
@@ -289,7 +289,7 @@ source of truth for `(detector, subtype) → user_category`:
 |---|---|
 | `presidio` US_SSN / US_PASSPORT / US_DRIVER_LICENSE / US_ITIN | `gov_id` |
 | `presidio` CREDIT_CARD / IBAN_CODE / US_BANK_NUMBER | `financial` |
-| `presidio` UK_NHS / UK_NINO / ES_NIF / IT_FISCAL_CODE / AU_MEDICARE / SG_NRIC_FIN / IN_AADHAAR / PL_PESEL / FI_PERSONAL_IDENTITY_CODE | `gov_id` |
+| `presidio` UK_NHS / UK_NINO / ES_NIF / IT_FISCAL_CODE / AU_MEDICARE / SG_NRIC_FIN / IN_AADHAAR / FI_PERSONAL_IDENTITY_CODE | `gov_id` |
 | `presidio` AU_TFN / IN_PAN | `tax` |
 | `presidio` EMAIL_ADDRESS / PHONE_NUMBER | `other_pii` |
 | `privacy_filter` account_number | `financial` |
