@@ -83,6 +83,29 @@ class Profile(str, Enum):
     ALL = "all"
 
 
+class DetectorSet(str, Enum):
+    """Which detectors to actually invoke during a scan.
+
+    ``all`` — Presidio **and** Privacy Filter. Default. Privacy Filter
+    contributes contextual entities (names, addresses, emails-in-context,
+    secrets, account numbers) but is the slow detector — ~2 s/chunk on
+    CPU, ~1 s on Apple-Silicon MPS. A 134-doc inbox takes roughly
+    25-40 min on CPU vs ~7 min on MPS.
+
+    ``presidio`` — Presidio only. ~50 ms/doc. Use on low-compute
+    machines (entry-level Windows laptops with no GPU) where the
+    full pipeline is unworkable. The critical-PII coverage stays
+    intact: every entity that flags a message under
+    ``--profile critical`` (SSN, passport, credit card, IBAN, ITIN,
+    driver's licence, US bank, the Tier A international IDs) comes
+    from Presidio. What you lose is the contextual ``other_pii``
+    catches and Privacy Filter's ``secret`` / ``account_number``.
+    """
+
+    ALL = "all"
+    PRESIDIO = "presidio"
+
+
 # Lower index = more selective. ``profile_includes_tier`` is the only
 # function that should consult this — callers should use the helper.
 _TIER_ORDER: tuple[str, ...] = ("critical", "all")

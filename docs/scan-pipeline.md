@@ -253,6 +253,33 @@ The chosen profile is persisted in `Scan.config_snapshot.profile`.
 Switching profiles requires a re-scan (per-scan rewrite semantics —
 see [data model § re-scan semantics](data-model.md#re-scan-semantics)).
 
+### Detector set (`--detectors`)
+
+Independent of the profile filter, the user picks **which detectors
+actually run** via `--detectors all|presidio`. Two modes:
+
+| Mode | Detectors | Wall-clock (134-doc inbox) | When to use |
+|---|---|---|---|
+| `all` (default) | Presidio + Privacy Filter | ~25-40 min CPU, ~7 min Apple-Silicon MPS | Full coverage including contextual catches |
+| `presidio` | Presidio only | ~30 s (CPU is fine) | Low-compute hosts — Windows laptops with no GPU, CI runners, anything where the contextual detector is unworkable |
+
+The critical-PII coverage is unchanged in `presidio` mode: every
+entity that flags a message under `--profile critical` (SSN, passport,
+credit card, IBAN, ITIN, driver's licence, US bank, plus the eleven
+Tier A international IDs) comes from Presidio. What you lose:
+
+* Contextual `other_pii` catches that come from Privacy Filter (names,
+  addresses, contextual emails/phones/URLs/dates) — these don't flag a
+  message on their own anyway, they only appear in `category_summary`.
+* Privacy Filter's `secret` and `account_number` labels. These *do*
+  flag messages, so if a corpus contains API keys or bank-account
+  references without recognisable IBAN/US-bank structure, fast mode
+  will miss them. Trade-off for the 50× speedup.
+
+The chosen detector set is persisted in
+`Scan.config_snapshot.detectors`. Like the profile, switching requires
+a re-scan.
+
 ### Categorizer
 
 [`categorizer.py`](../inbox_scanner/detection/categorizer.py). Single

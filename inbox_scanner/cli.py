@@ -26,7 +26,7 @@ from sqlalchemy import func, select
 
 from inbox_scanner.config import Settings, load_settings
 from inbox_scanner.db import make_engine, make_session_factory, session_scope
-from inbox_scanner.detection.types import Profile
+from inbox_scanner.detection.types import DetectorSet, Profile
 from inbox_scanner.gmail.auth import CredentialsMissing, run_oauth_flow
 from inbox_scanner.gmail.sync import MailboxScope, run_sync
 from inbox_scanner.logging import configure_logging, get_logger
@@ -196,6 +196,23 @@ def scan(
             ),
         ),
     ] = Profile.CRITICAL,
+    detectors: Annotated[
+        DetectorSet,
+        typer.Option(
+            case_sensitive=False,
+            help=(
+                "Which detectors to run. 'all' (default) runs Presidio "
+                "+ Privacy Filter — the contextual detector is the slow "
+                "one (~25-40 min for a 134-doc inbox on CPU, ~7 min on "
+                "Apple-Silicon MPS). 'presidio' runs only the pattern "
+                "detector (~30 s for the same inbox) — useful on "
+                "low-compute machines (e.g. Windows laptops without a "
+                "GPU). All critical-PII coverage is preserved; what's "
+                "lost is contextual names/addresses and Privacy Filter's "
+                "secret / account_number labels."
+            ),
+        ),
+    ] = DetectorSet.ALL,
 ) -> None:
     """Phase 2: extract + detect on locally cached attachments. No Gmail access.
 
@@ -203,6 +220,12 @@ def scan(
     Use ``--profile all`` to also record Privacy Filter's broader catches —
     ``account_number`` (still flags the message) plus informational names,
     addresses, emails, phones, URLs, and dates.
+
+    On low-compute machines (Windows laptops without a GPU), pass
+    ``--detectors presidio`` to skip the slow contextual detector. The
+    critical-PII catches all come from Presidio, so coverage of the
+    catastrophic-leak class (SSN, credit card, IBAN, the Tier A
+    international IDs) is unchanged.
     """
     if only_extract and only_detect:
         raise typer.BadParameter("--only-extract and --only-detect are mutually exclusive.")
@@ -214,6 +237,7 @@ def scan(
         only_extract=only_extract,
         only_detect=only_detect,
         profile=profile.value,
+        detectors=detectors.value,
     )
 
     engine = make_engine(settings.db_path)
@@ -254,6 +278,7 @@ def scan(
                 only_extract=only_extract,
                 only_detect=only_detect,
                 profile=profile,
+                detectors=detectors,
                 extract_concurrency=settings.extraction.extract_concurrency,
                 on_extract_total_known=_on_extract_total_known,
                 on_extract_done=_on_extract_done,

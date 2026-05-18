@@ -35,7 +35,12 @@ from inbox_scanner.blobs import read_blob
 from inbox_scanner.config import Settings
 from inbox_scanner.db import session_scope
 from inbox_scanner.detection import categorizer, runner as detection_runner
-from inbox_scanner.detection.types import Detection as DetectionTuple, Finding, Profile
+from inbox_scanner.detection.types import (
+    Detection as DetectionTuple,
+    DetectorSet,
+    Finding,
+    Profile,
+)
 from inbox_scanner.extraction import docling_extractor
 from inbox_scanner.extraction.router import route as route_attachment
 from inbox_scanner.logging import get_logger
@@ -329,9 +334,12 @@ def _select_detect_work(
 
 
 def _run_detection_for_attachment(
-    settings: Settings, item: dict, profile: Profile
+    settings: Settings,
+    item: dict,
+    profile: Profile,
+    detectors: DetectorSet,
 ) -> list[DetectionTuple]:
-    """Read the cached markdown and run both detectors. Returns
+    """Read the cached markdown and run the enabled detectors. Returns
     categorized detections; the caller persists them."""
     rel = item["extracted_text_path"]
     if not rel:
@@ -348,6 +356,7 @@ def _run_detection_for_attachment(
         presidio_threshold=settings.detection.presidio_threshold,
         privacy_filter_threshold=settings.detection.privacy_filter_threshold,
         profile=profile,
+        detectors=detectors,
     )
 
 
@@ -468,6 +477,7 @@ async def run_scan(
     only_extract: bool = False,
     only_detect: bool = False,
     profile: Profile = Profile.CRITICAL,
+    detectors: DetectorSet = DetectorSet.ALL,
     extract_concurrency: int = _DEFAULT_EXTRACT_CONCURRENCY,
     detect_concurrency: int = _DEFAULT_DETECT_CONCURRENCY,
     on_extract_total_known=None,
@@ -483,6 +493,7 @@ async def run_scan(
         "only_extract": only_extract,
         "only_detect": only_detect,
         "profile": profile.value,
+        "detectors": detectors.value,
         "extract_concurrency": extract_concurrency,
         "detect_concurrency": detect_concurrency,
         "presidio_threshold": settings.detection.presidio_threshold,
@@ -556,6 +567,7 @@ async def run_scan(
                                 settings,
                                 item,
                                 profile,
+                                detectors,
                             )
                             await asyncio.to_thread(
                                 _persist_detections,
