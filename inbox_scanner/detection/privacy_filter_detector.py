@@ -9,11 +9,24 @@ into one span. Detects: ``account_number``, ``private_address``,
 The model handles up to 128 k tokens per call but it's much faster on
 shorter inputs. We chunk at ``_CHUNK_TOKENS`` characters and re-base the
 returned spans into the original text so callers see absolute offsets.
+
+Performance notes:
+
+* On Apple Silicon we move the pipeline to the ``mps`` device. The model
+  is small enough that all ops have MPS kernels in current PyTorch, but
+  we set ``PYTORCH_ENABLE_MPS_FALLBACK=1`` defensively so a future op
+  without an MPS kernel silently falls back to CPU instead of crashing
+  mid-scan.
+* All chunks for a single document are submitted as one batch
+  (``batch_size=_BATCH_SIZE``). HuggingFace pipelines accept a list of
+  strings and return parallel lists of results, which is much more
+  efficient than one call per chunk — the per-call overhead is fixed.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import warnings
 from typing import Any
@@ -35,9 +48,36 @@ _CHUNK_CHARS = 4_000
 # gets detected on at least one side.
 _CHUNK_OVERLAP = 200
 
+# How many chunks to run through the model per pipeline call. The
+# Privacy Filter base model is small (~70 MB params), so even on an
+# entry-level Apple Silicon Mac mini a batch of 8 fits comfortably in
+# unified memory. Bigger batches don't help much beyond this on
+# typical doc-length distributions.
+_BATCH_SIZE = 8
+
 _pipeline_lock = threading.Lock()
 _pipeline: Any | None = None
 _first_call_warned = False
+
+
+def _select_device() -> str:
+    """Return the torch device string the pipeline should run on.
+
+    Prefers ``mps`` on Apple Silicon (typically 3-5× faster than CPU for
+    token classification on M-series chips). Falls back to ``cpu``
+    everywhere else. ``cuda`` isn't checked — we don't target Linux/GPU
+    setups in v1.
+    """
+    try:
+        import torch
+
+        if torch.backends.mps.is_available():
+            return "mps"
+    except Exception:
+        # Any failure in detection (missing torch backend module,
+        # unexpected attribute) is non-fatal — just stay on CPU.
+        pass
+    return "cpu"
 
 
 def _get_pipeline() -> Any:
@@ -69,7 +109,20 @@ def _get_pipeline() -> Any:
             hf_logging.set_verbosity_error()
             hf_logging.disable_progress_bar()
 
-            log.info("privacy_filter.initializing", model=_MODEL_NAME)
+            # Set MPS fallback before the pipeline materialises any
+            # tensors. Without this, an op that doesn't yet have an MPS
+            # kernel raises ``NotImplementedError`` mid-inference and
+            # tanks the whole scan. With it, that op transparently runs
+            # on CPU — slower for that op but the scan completes.
+            os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+
+            device = _select_device()
+            log.info(
+                "privacy_filter.initializing",
+                model=_MODEL_NAME,
+                device=device,
+                batch_size=_BATCH_SIZE,
+            )
             # ``aggregation_strategy="simple"`` doesn't merge across a
             # BIE-sequence → S-single-token boundary; we fix that
             # post-hoc with :func:`_merge_adjacent_same_subtype` so the
@@ -78,6 +131,7 @@ def _get_pipeline() -> Any:
                 "token-classification",
                 model=_MODEL_NAME,
                 aggregation_strategy="simple",
+                device=device,
             )
         return _pipeline
 
@@ -166,7 +220,13 @@ def _merge_adjacent_same_subtype(
 
 
 def detect(text: str, *, score_threshold: float = 0.6) -> list[Finding]:
-    """Run Privacy Filter and return findings above ``score_threshold``."""
+    """Run Privacy Filter and return findings above ``score_threshold``.
+
+    All chunks of ``text`` are submitted in a single batched pipeline
+    call. On a long document split into N chunks this saves N-1 round
+    trips through the pipeline's preprocessing and dispatch overhead
+    and lets the model run N inputs in parallel on the device.
+    """
     global _first_call_warned
     if not text:
         return []
@@ -175,19 +235,27 @@ def detect(text: str, *, score_threshold: float = 0.6) -> list[Finding]:
         log.info("privacy_filter.first_call_may_download_models")
 
     clf = _get_pipeline()
-    out: list[Finding] = []
+    chunks = _iter_chunks(text)
+    if not chunks:
+        return []
+    offsets = [c[0] for c in chunks]
+    chunk_texts = [c[1] for c in chunks]
 
-    for offset, chunk in _iter_chunks(text):
-        try:
-            results = clf(chunk)
-        except Exception as e:
-            log.exception(
-                "privacy_filter.chunk_failed",
-                chunk_offset=offset,
-                chunk_chars=len(chunk),
-                error=str(e),
-            )
-            continue
+    try:
+        # Pipeline returns ``list[list[dict]]`` when given a list input —
+        # one inner list of entity dicts per chunk, aligned by index.
+        batched = clf(chunk_texts, batch_size=_BATCH_SIZE)
+    except Exception as e:
+        log.exception(
+            "privacy_filter.batch_failed",
+            chunks=len(chunks),
+            total_chars=sum(len(c) for c in chunk_texts),
+            error=str(e),
+        )
+        return []
+
+    out: list[Finding] = []
+    for offset, results in zip(offsets, batched):
         for r in results:
             score = float(r.get("score", 0.0))
             if score < score_threshold:
