@@ -1,65 +1,93 @@
 """Tests for inbox_scanner.detection.runner.
 
-Specifically pins the ``detectors=DetectorSet.PRESIDIO`` fast-path: we
-must not invoke the heavy Privacy Filter pipeline when the caller opts
-into Presidio-only mode. Monkeypatching the privacy-filter module's
-``detect`` is the right level — it doesn't depend on the singleton
-model load.
+Pins the three-way ``DetectorSet`` switch: each mode must invoke exactly
+the right detectors and skip the others. Monkeypatching each detector
+module's ``detect`` is the right level — it doesn't depend on the
+singleton model loads.
 """
 
 from __future__ import annotations
 
-import pytest
+from inbox_scanner.detection import presidio_detector, privacy_filter_detector, runner
+from inbox_scanner.detection.types import DetectorSet
 
-from inbox_scanner.detection import privacy_filter_detector, runner
-from inbox_scanner.detection.types import DetectorSet, Finding
+
+def _record(sink: list[str], name: str):
+    """Build a stand-in ``detect`` that appends to ``sink`` and returns []."""
+
+    def fake(text, score_threshold=0.0):  # type: ignore[unused-argument]
+        sink.append(name)
+        return []
+
+    return fake
 
 
 def _boom(*_args, **_kwargs):
-    """Stand-in for privacy_filter_detector.detect that fails the test
-    if it ever runs."""
-    raise AssertionError(
-        "privacy_filter_detector.detect was called in Presidio-only mode"
-    )
+    """Stand-in that fails the test if it ever runs — use for the
+    detector that's supposed to be skipped in the mode under test."""
+    raise AssertionError("detector invoked in a mode that should skip it")
 
 
-def test_presidio_only_does_not_invoke_privacy_filter(monkeypatch):
-    """In ``DetectorSet.PRESIDIO`` mode the Privacy Filter detector must
-    not be called — that's the whole point of the fast path."""
+# ---------- PRESIDIO mode ----------
+
+
+def test_presidio_mode_invokes_only_presidio(monkeypatch):
+    """PRESIDIO mode is the default fast path — Privacy Filter must
+    not run."""
+    calls: list[str] = []
+    monkeypatch.setattr(presidio_detector, "detect", _record(calls, "presidio"))
     monkeypatch.setattr(privacy_filter_detector, "detect", _boom)
-    # A short text with an SSN-shaped value so Presidio has something to
-    # find; we don't actually care about the return value, only that the
-    # call completes without raising.
-    runner.run(
-        "SSN: 123-45-6789",
-        detectors=DetectorSet.PRESIDIO,
-    )
+    runner.run("SSN: 123-45-6789", detectors=DetectorSet.PRESIDIO)
+    assert calls == ["presidio"]
 
 
-def test_default_mode_invokes_privacy_filter(monkeypatch):
-    """And the inverse: the default ``DetectorSet.ALL`` must keep
-    calling Privacy Filter so we don't accidentally regress to fast
-    mode on every scan."""
-    called: list[str] = []
-
-    def _record(text, score_threshold=0.6):  # type: ignore[unused-argument]
-        called.append(text)
-        return []  # no findings — Privacy Filter is mocked out
-
-    monkeypatch.setattr(privacy_filter_detector, "detect", _record)
-    runner.run("SSN: 123-45-6789")  # default detectors=ALL
-    assert called, "expected privacy_filter_detector.detect to be invoked"
+def test_default_mode_is_presidio_only(monkeypatch):
+    """No ``detectors=`` arg → PRESIDIO (the new default). Privacy
+    Filter must not run."""
+    calls: list[str] = []
+    monkeypatch.setattr(presidio_detector, "detect", _record(calls, "presidio"))
+    monkeypatch.setattr(privacy_filter_detector, "detect", _boom)
+    runner.run("SSN: 123-45-6789")
+    assert calls == ["presidio"]
 
 
-def test_presidio_only_still_returns_presidio_findings(monkeypatch):
+def test_presidio_mode_still_returns_presidio_findings(monkeypatch):
     """Sanity check that the Presidio half of the runner still works
-    when Privacy Filter is skipped."""
+    when called through the runner (uses real Presidio, mocks PF)."""
     monkeypatch.setattr(privacy_filter_detector, "detect", _boom)
     detections = runner.run(
         "Card: 4111 1111 1111 1111",
         detectors=DetectorSet.PRESIDIO,
     )
-    # Presidio recognises CREDIT_CARD via Luhn; expect at least one
-    # categorized detection back, all under the presidio detector.
     assert detections, "expected Presidio to find the credit card"
     assert all(d.finding.detector == "presidio" for d in detections)
+
+
+# ---------- PRIVACY_FILTER mode ----------
+
+
+def test_privacy_filter_mode_invokes_only_privacy_filter(monkeypatch):
+    """Mirror image of PRESIDIO mode — Presidio must not run."""
+    calls: list[str] = []
+    monkeypatch.setattr(presidio_detector, "detect", _boom)
+    monkeypatch.setattr(
+        privacy_filter_detector, "detect", _record(calls, "privacy_filter")
+    )
+    runner.run("Some text", detectors=DetectorSet.PRIVACY_FILTER)
+    assert calls == ["privacy_filter"]
+
+
+# ---------- ALL mode ----------
+
+
+def test_all_mode_invokes_both(monkeypatch):
+    """ALL mode runs both detectors. Order matters for span-merging
+    elsewhere, but the runner just concatenates — both names must
+    appear in the call order Presidio→PF."""
+    calls: list[str] = []
+    monkeypatch.setattr(presidio_detector, "detect", _record(calls, "presidio"))
+    monkeypatch.setattr(
+        privacy_filter_detector, "detect", _record(calls, "privacy_filter")
+    )
+    runner.run("Some text", detectors=DetectorSet.ALL)
+    assert calls == ["presidio", "privacy_filter"]

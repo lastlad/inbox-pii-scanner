@@ -477,7 +477,7 @@ async def run_scan(
     only_extract: bool = False,
     only_detect: bool = False,
     profile: Profile = Profile.CRITICAL,
-    detectors: DetectorSet = DetectorSet.ALL,
+    detectors: DetectorSet = DetectorSet.PRESIDIO,
     extract_concurrency: int = _DEFAULT_EXTRACT_CONCURRENCY,
     detect_concurrency: int = _DEFAULT_DETECT_CONCURRENCY,
     on_extract_total_known=None,

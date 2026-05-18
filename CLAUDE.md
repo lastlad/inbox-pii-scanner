@@ -15,7 +15,7 @@ Local-first, **strictly read-only** Gmail PII scanner. Two-phase design:
 
 ## Repository status
 
-v1 complete. All 10 build-order steps shipped, 119 tests passing, browser-tested on the dev corpus. The user wants to review everything before declaring shipped — don't say "v1 done" in commits or docs.
+v1 complete. All 10 build-order steps shipped, 121 tests passing, browser-tested on the dev corpus. The user wants to review everything before declaring shipped — don't say "v1 done" in commits or docs.
 
 ## Working environment
 
@@ -84,7 +84,7 @@ No write access to Gmail. No daemon/incremental mode. No email-body scanning. No
 ```
 inbox-scanner auth                                              # OAuth handshake; saves token.json
 inbox-scanner sync   [--limit N] [--since YYYY-MM-DD]           # Phase 1
-inbox-scanner scan   [--force-extract] [--only-extract|--only-detect] [--profile critical|all] [--detectors all|presidio]  # Phase 2
+inbox-scanner scan   [--force-extract] [--only-extract|--only-detect] [--profile critical|all] [--detectors presidio|privacy_filter|all]  # Phase 2
 inbox-scanner serve  [--host HOST] [--port 8765]                # FastAPI + UI
 inbox-scanner status                                            # sync + scan + verdict tables
 inbox-scanner reset  [--keep-attachments] [--keep-extractions] [--all] [-y]
@@ -101,7 +101,7 @@ inbox-scanner reset  [--keep-attachments] [--keep-extractions] [--all] [-y]
 
 ## Testing
 
-- 119 tests, ~6 s wall clock. `uv run pytest -q`.
+- 121 tests, ~6 s wall clock. `uv run pytest -q`.
 - Heavy detection deps (Presidio + Privacy Filter) are loaded lazily; tests that exercise them stay fast because singletons load once per process.
 - **Don't write tests that hit real Gmail or load real models.** Unit-test pure helpers (router, categorizer, regex patterns, span merger, blob storage, rate limiter, reset planning). Integration-test the API via FastAPI's `TestClient` with `fresh_data_dir`.
 - After model or schema changes: regenerate migrations against a tmpdir (see the alembic command in the table above).

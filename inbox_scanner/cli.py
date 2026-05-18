@@ -201,18 +201,12 @@ def scan(
         typer.Option(
             case_sensitive=False,
             help=(
-                "Which detectors to run. 'all' (default) runs Presidio "
-                "+ Privacy Filter — the contextual detector is the slow "
-                "one (~25-40 min for a 134-doc inbox on CPU, ~7 min on "
-                "Apple-Silicon MPS). 'presidio' runs only the pattern "
-                "detector (~30 s for the same inbox) — useful on "
-                "low-compute machines (e.g. Windows laptops without a "
-                "GPU). All critical-PII coverage is preserved; what's "
-                "lost is contextual names/addresses and Privacy Filter's "
-                "secret / account_number labels."
+                "Which detectors to run. 'presidio' = pattern detector "
+                "(default), 'privacy_filter' = contextual detector, "
+                "'all' = both."
             ),
         ),
-    ] = DetectorSet.ALL,
+    ] = DetectorSet.PRESIDIO,
 ) -> None:
     """Phase 2: extract + detect on locally cached attachments. No Gmail access.
 
@@ -221,11 +215,10 @@ def scan(
     ``account_number`` (still flags the message) plus informational names,
     addresses, emails, phones, URLs, and dates.
 
-    On low-compute machines (Windows laptops without a GPU), pass
-    ``--detectors presidio`` to skip the slow contextual detector. The
-    critical-PII catches all come from Presidio, so coverage of the
-    catastrophic-leak class (SSN, credit card, IBAN, the Tier A
-    international IDs) is unchanged.
+    By default only Presidio runs (``--detectors presidio``), which is fast
+    on any host and covers the catastrophic-leak class (SSN, credit card,
+    IBAN, the Tier A international IDs). Pass ``--detectors privacy_filter``
+    for contextual catches only, or ``--detectors all`` for both.
     """
     if only_extract and only_detect:
         raise typer.BadParameter("--only-extract and --only-detect are mutually exclusive.")

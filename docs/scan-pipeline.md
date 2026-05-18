@@ -256,25 +256,33 @@ see [data model § re-scan semantics](data-model.md#re-scan-semantics)).
 ### Detector set (`--detectors`)
 
 Independent of the profile filter, the user picks **which detectors
-actually run** via `--detectors all|presidio`. Two modes:
+actually run** via `--detectors presidio|privacy_filter|all`. Three
+modes:
 
 | Mode | Detectors | Wall-clock (134-doc inbox) | When to use |
 |---|---|---|---|
-| `all` (default) | Presidio + Privacy Filter | ~25-40 min CPU, ~7 min Apple-Silicon MPS | Full coverage including contextual catches |
-| `presidio` | Presidio only | ~30 s (CPU is fine) | Low-compute hosts — Windows laptops with no GPU, CI runners, anything where the contextual detector is unworkable |
+| `presidio` (default) | Presidio only | ~30 s (CPU is fine) | Daily use on any host; covers all critical-PII entities |
+| `privacy_filter` | Privacy Filter only | ~25-40 min CPU, ~7 min MPS | Surveying for contextual entities only (names, addresses, secrets, account numbers) |
+| `all` | Presidio + Privacy Filter | ~25-40 min CPU, ~7 min MPS | Maximum coverage; matches v1 behaviour |
 
-The critical-PII coverage is unchanged in `presidio` mode: every
-entity that flags a message under `--profile critical` (SSN, passport,
-credit card, IBAN, ITIN, driver's licence, US bank, plus the eleven
-Tier A international IDs) comes from Presidio. What you lose:
+The default changed from `all` to `presidio` because the critical-PII
+coverage is fully preserved in `presidio` mode — every entity that
+flags a message under `--profile critical` (SSN, passport, credit
+card, IBAN, ITIN, driver's licence, US bank, plus the ten Tier A
+international IDs) comes from Presidio. What `presidio` mode loses
+versus `all`:
 
-* Contextual `other_pii` catches that come from Privacy Filter (names,
-  addresses, contextual emails/phones/URLs/dates) — these don't flag a
-  message on their own anyway, they only appear in `category_summary`.
+* Contextual `other_pii` catches (names, addresses, contextual
+  emails/phones/URLs/dates) — these don't flag a message on their own
+  anyway, they only appear in `category_summary`.
 * Privacy Filter's `secret` and `account_number` labels. These *do*
   flag messages, so if a corpus contains API keys or bank-account
-  references without recognisable IBAN/US-bank structure, fast mode
-  will miss them. Trade-off for the 50× speedup.
+  references without recognisable IBAN/US-bank structure, the default
+  mode will miss them. Use `--detectors all` to recover them.
+
+`privacy_filter` mode is the inverse: only the contextual detector
+runs. Useful when surveying an inbox for contextual entities without
+the strict-pattern noise, or when comparing detector outputs.
 
 The chosen detector set is persisted in
 `Scan.config_snapshot.detectors`. Like the profile, switching requires
