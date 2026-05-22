@@ -1,4 +1,4 @@
-"""Tests for ``_build_query`` in inbox_scanner.gmail.sync.
+"""Tests for ``_build_query`` in inboxaudit.gmail.sync.
 
 The query string is what we hand to Gmail's ``messages.list?q=...``.
 Wrong tokens here silently change which mail we sync — worth pinning.
@@ -6,7 +6,7 @@ Wrong tokens here silently change which mail we sync — worth pinning.
 
 from __future__ import annotations
 
-from inbox_scanner.gmail.sync import MailboxScope, _build_query
+from inboxaudit.gmail.sync import MailboxScope, _build_query
 
 
 def test_default_query_is_bare_has_attachment():

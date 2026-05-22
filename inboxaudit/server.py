@@ -34,9 +34,9 @@ from sqlalchemy import func, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from inbox_scanner.config import Settings, load_settings
-from inbox_scanner.db import make_engine, make_session_factory, session_scope
-from inbox_scanner.models import (
+from inboxaudit.config import Settings, load_settings
+from inboxaudit.db import make_engine, make_session_factory, session_scope
+from inboxaudit.models import (
     Attachment,
     Detection,
     Message,

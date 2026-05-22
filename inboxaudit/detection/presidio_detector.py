@@ -46,8 +46,8 @@ from presidio_analyzer.predefined_recognizers import (
     UkNinoRecognizer,
 )
 
-from inbox_scanner.detection.types import Finding
-from inbox_scanner.logging import get_logger
+from inboxaudit.detection.types import Finding
+from inboxaudit.logging import get_logger
 
 log = get_logger("detection.presidio")
 

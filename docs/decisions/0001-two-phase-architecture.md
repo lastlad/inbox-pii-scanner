@@ -24,10 +24,10 @@ makes the development loop painful.
 Split the runtime into two commands that share storage but otherwise
 run independently:
 
-- **`inbox-scanner sync`** talks to Gmail. Writes message metadata and
+- **`inboxaudit sync`** talks to Gmail. Writes message metadata and
   raw attachment bytes into the local store. Idempotent and
   resumable.
-- **`inbox-scanner scan`** runs entirely offline against the local
+- **`inboxaudit scan`** runs entirely offline against the local
   store. Re-runnable any number of times.
 
 The DB schema mirrors the split: `messages` and `attachments` carry
@@ -51,15 +51,15 @@ get rewritten every scan.
 **Costs:**
 
 - Two separate progress UIs to maintain, two separate command flows
-  for the user to learn. Mitigated by `inbox-scanner scan` running
+  for the user to learn. Mitigated by `inboxaudit scan` running
   both stages end-to-end when called with no flags.
 - The CLI has more commands than the minimum. Worth it.
 
 ## Encoded in
 
-- `inbox_scanner/pipelines/sync_pipeline.py` and
-  `inbox_scanner/pipelines/scan_pipeline.py` — two separate orchestrators.
-- DB schema in `inbox_scanner/models.py`: `syncs` / `scans` run tables,
+- `inboxaudit/pipelines/sync_pipeline.py` and
+  `inboxaudit/pipelines/scan_pipeline.py` — two separate orchestrators.
+- DB schema in `inboxaudit/models.py`: `syncs` / `scans` run tables,
   per-row `sync_status` and `extraction_status` columns.
 - CLAUDE.md "Architecture: keep the two phases separate" rule.
 - Build-order step 4 onwards: the scan pipeline was developed entirely

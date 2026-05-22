@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from inbox_scanner.detection import (
+from inboxaudit.detection import (
     categorizer,
     presidio_detector,
     privacy_filter_detector,
 )
-from inbox_scanner.detection.types import Detection, DetectorSet, Finding, Profile
-from inbox_scanner.logging import get_logger
+from inboxaudit.detection.types import Detection, DetectorSet, Finding, Profile
+from inboxaudit.logging import get_logger
 
 log = get_logger("detection.runner")
 

@@ -79,15 +79,15 @@ Docling's own `do_picture_description=True`, which loads SmolVLM
 
 ## Encoded in
 
-- `inbox_scanner/extraction/router.py` — single-allowlist mime
+- `inboxaudit/extraction/router.py` — single-allowlist mime
   routing. The `qwen-vl` branch is gone; the only remaining values
   for `ExtractionRoute` are `"docling"` and `"unparseable"`.
-- `inbox_scanner/extraction/docling_extractor.py` — singleton
+- `inboxaudit/extraction/docling_extractor.py` — singleton
   DocumentConverter.
-- `inbox_scanner/pipelines/scan_pipeline.py::_process_one` — no
+- `inboxaudit/pipelines/scan_pipeline.py::_process_one` — no
   qwen-vl deferral branch; the `extraction_route` column only ever
   takes `"docling"` or `"unparseable"`.
-- `inbox_scanner/config.py::ExtractionConfig` — vlm_* fields removed;
+- `inboxaudit/config.py::ExtractionConfig` — vlm_* fields removed;
   one `extract_concurrency` knob remains.
 - Plan revision note at the top of `docs/archives/IMPLEMENTATION_PLAN.md`.
 

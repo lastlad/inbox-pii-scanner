@@ -1,9 +1,9 @@
 # Data model
 
 SQLite at `<data_dir>/state.db`. Schema defined in
-[`inbox_scanner/models.py`](../inbox_scanner/models.py), migrated by
+[`inboxaudit/models.py`](../inboxaudit/models.py), migrated by
 Alembic. WAL mode and `foreign_keys=ON` are enforced in
-[`db.py`](../inbox_scanner/db.py) on every connection.
+[`db.py`](../inboxaudit/db.py) on every connection.
 
 ## Entity overview
 
@@ -39,7 +39,7 @@ columns on `attachments`).
 
 ### `syncs` — phase 1 run log
 
-One row per `inbox-scanner sync` invocation.
+One row per `inboxaudit sync` invocation.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -56,7 +56,7 @@ processed each message. On a resumed sync, that's the new sync's id.
 
 ### `scans` — phase 2 run log
 
-One row per `inbox-scanner scan` invocation.
+One row per `inboxaudit scan` invocation.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -212,13 +212,13 @@ Index: `idx_verdicts_flagged(is_flagged, risk_score DESC)` — the
 `/api/flagged` list scans this in flagged-then-risk order.
 
 The categorizer's full mapping lives in
-[`detection/categorizer.py`](../inbox_scanner/detection/categorizer.py).
+[`detection/categorizer.py`](../inboxaudit/detection/categorizer.py).
 See [Scan pipeline § detection](scan-pipeline.md#detection-stage) for
 the per-category weights and flagging rules.
 
 ## Re-scan semantics
 
-Running `inbox-scanner scan` twice in a row produces **bit-for-bit
+Running `inboxaudit scan` twice in a row produces **bit-for-bit
 identical** `detections` and `message_verdicts` content (modulo the
 new `scan_id` and timestamps). The path:
 
@@ -244,7 +244,7 @@ pipeline](scan-pipeline.md) for the full sequence diagram.
 ## Migrations
 
 Two migrations to date. Auto-applied on every CLI invocation by
-[`inbox_scanner/migrations.py`](../inbox_scanner/migrations.py); the
+[`inboxaudit/migrations.py`](../inboxaudit/migrations.py); the
 manual `uv run alembic upgrade head` workflow is only needed when
 generating new revisions.
 
@@ -257,8 +257,8 @@ generating new revisions.
 When changing the schema:
 
 ```sh
-INBOX_SCANNER_DATA_DIR=$(mktemp -d) uv run alembic upgrade head
-INBOX_SCANNER_DATA_DIR=$(same tmpdir) uv run alembic revision \
+INBOXAUDIT_DATA_DIR=$(mktemp -d) uv run alembic upgrade head
+INBOXAUDIT_DATA_DIR=$(same tmpdir) uv run alembic revision \
     --autogenerate -m "<short slug>"
 ```
 

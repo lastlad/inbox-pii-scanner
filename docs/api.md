@@ -1,6 +1,6 @@
 # API reference
 
-FastAPI app at [`inbox_scanner/server.py`](../inbox_scanner/server.py).
+FastAPI app at [`inboxaudit/server.py`](../inboxaudit/server.py).
 Bound to `127.0.0.1:8765` by default; **no auth**, **read-only**
 against the local SQLite store.
 
@@ -14,7 +14,7 @@ running.
 | GET | `/api/stats` | Dashboard summary: sync + scan counters |
 | GET | `/api/flagged` | Paginated list of flagged messages |
 | GET | `/api/email/{message_id}` | Full review payload for one message |
-| GET | `/` | Static frontend (`inbox_scanner/frontend/index.html`) |
+| GET | `/` | Static frontend (`inboxaudit/frontend/index.html`) |
 | GET | `/docs` | OpenAPI / Swagger UI (FastAPI auto-generated) |
 | GET | `/openapi.json` | OpenAPI schema |
 
@@ -54,7 +54,7 @@ breakdown of flagged messages.
 
 ### Pydantic models
 
-[`server.py::StatsResponse`](../inbox_scanner/server.py).
+[`server.py::StatsResponse`](../inboxaudit/server.py).
 
 - `sync.last_sync_at` is `null` if no sync has run.
 - `sync.total_blob_bytes` is a `sum()` over file sizes under
@@ -208,7 +208,7 @@ const post = f.snippet.slice(f.snippet_relative_end);
 ```
 
 That's exactly what
-[`frontend/index.html`](../inbox_scanner/frontend/index.html) does.
+[`frontend/index.html`](../inboxaudit/frontend/index.html) does.
 See [Frontend § snippet rendering](frontend.md#finding-snippets).
 
 ### 404
@@ -221,7 +221,7 @@ Returned when no `messages` row matches the path parameter.
 
 ## `GET /`
 
-Serves [`inbox_scanner/frontend/index.html`](../inbox_scanner/frontend/index.html)
+Serves [`inboxaudit/frontend/index.html`](../inboxaudit/frontend/index.html)
 verbatim if present, or a small placeholder HTML otherwise. The
 placeholder lists the API endpoints and links to `/docs` — useful as a
 sanity-check from a fresh browser before the UI ships.

@@ -2,7 +2,7 @@
 
 Phase 2: extract text from cached attachments and run PII detection
 over the text. Entry point:
-[`inbox_scanner/pipelines/scan_pipeline.py::run_scan`](../inbox_scanner/pipelines/scan_pipeline.py).
+[`inboxaudit/pipelines/scan_pipeline.py::run_scan`](../inboxaudit/pipelines/scan_pipeline.py).
 
 Two stages, each independently runnable:
 
@@ -31,7 +31,7 @@ flowchart LR
 
 ### Router
 
-[`extraction/router.py`](../inbox_scanner/extraction/router.py).
+[`extraction/router.py`](../inboxaudit/extraction/router.py).
 Mime-only allowlist; no content sniffing. PDF text-layer detection
 that v1 used to do is gone — Docling 2.x's PDF pipeline has
 `do_ocr=True` by default and falls back to OCR automatically when a
@@ -62,7 +62,7 @@ human-readable reason.
 
 ### Docling extractor
 
-[`extraction/docling_extractor.py`](../inbox_scanner/extraction/docling_extractor.py).
+[`extraction/docling_extractor.py`](../inboxaudit/extraction/docling_extractor.py).
 
 ```python
 from docling.document_converter import DocumentConverter
@@ -142,7 +142,7 @@ flowchart TD
 
 ### The two detectors
 
-[`detection/runner.py::run`](../inbox_scanner/detection/runner.py)
+[`detection/runner.py::run`](../inboxaudit/detection/runner.py)
 calls both sequentially per text input. Each returns `Finding`
 dataclasses; the categorizer maps them to `Detection`s. An earlier
 ``custom_regex`` detector existed but was retired during v1
@@ -150,7 +150,7 @@ simplification — see [ADR 0005](decisions/0005-three-detector-pipeline.md).
 
 #### Presidio
 
-[`presidio_detector.py`](../inbox_scanner/detection/presidio_detector.py).
+[`presidio_detector.py`](../inboxaudit/detection/presidio_detector.py).
 Pinned to an explicit entity allowlist — a US/global core plus a
 Tier A international set of national IDs (see
 [ADR 0006](decisions/0006-international-pii-tier-a.md)):
@@ -186,7 +186,7 @@ them participate in our English-only `analyze()` calls.
 
 #### Privacy Filter (`openai/privacy-filter`)
 
-[`privacy_filter_detector.py`](../inbox_scanner/detection/privacy_filter_detector.py).
+[`privacy_filter_detector.py`](../inboxaudit/detection/privacy_filter_detector.py).
 HuggingFace token-classification pipeline. Detects:
 
 ```
@@ -233,7 +233,7 @@ at that point. See
 [ADR 0005](decisions/0005-three-detector-pipeline.md).
 
 The tier lives in
-[`categorizer.py::_REGISTRY`](../inbox_scanner/detection/categorizer.py)
+[`categorizer.py::_REGISTRY`](../inboxaudit/detection/categorizer.py)
 alongside the user category — each row is an ``_Entry(category, tier)``
 NamedTuple. A coverage test
 (`tests/test_categorizer.py::test_every_registry_entry_is_valid`)
@@ -290,7 +290,7 @@ a re-scan.
 
 ### Categorizer
 
-[`categorizer.py`](../inbox_scanner/detection/categorizer.py). Single
+[`categorizer.py`](../inboxaudit/detection/categorizer.py). Single
 source of truth for `(detector, subtype) → user_category`:
 
 | Detector + subtype | User category |

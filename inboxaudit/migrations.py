@@ -20,8 +20,8 @@ from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine
 
-from inbox_scanner.config import Settings, find_project_root
-from inbox_scanner.logging import get_logger
+from inboxaudit.config import Settings, find_project_root
+from inboxaudit.logging import get_logger
 
 log = get_logger("migrations")
 

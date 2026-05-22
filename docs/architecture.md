@@ -9,7 +9,7 @@ model weights.
 
 ```mermaid
 flowchart TB
-    User([User]) -->|inbox-scanner cmd| CLI[Typer CLI]
+    User([User]) -->|inboxaudit cmd| CLI[Typer CLI]
 
     CLI -->|sync| Sync[Sync pipeline]
     CLI -->|scan| Scan[Scan pipeline]
@@ -46,8 +46,8 @@ short version:
 
 | Phase | Network | Mutable state | Cost model |
 |---|---|---|---|
-| Sync (`inbox-scanner sync`) | Gmail API (read-only) | DB rows + blob files | One-time per inbox; bandwidth-bound |
-| Scan (`inbox-scanner scan`) | None (HF cache on first run only) | DB rows + extracted markdown | Re-runnable; CPU-bound |
+| Sync (`inboxaudit sync`) | Gmail API (read-only) | DB rows + blob files | One-time per inbox; bandwidth-bound |
+| Scan (`inboxaudit scan`) | None (HF cache on first run only) | DB rows + extracted markdown | Re-runnable; CPU-bound |
 
 The two phases share the SQLite DB but otherwise run independently. You
 can interrupt sync mid-flight and re-run; you can re-scan as many times
@@ -57,7 +57,7 @@ again.
 ## Component map
 
 ```
-inbox_scanner/
+inboxaudit/
 ├── cli.py                         # Typer commands (auth, sync, scan, serve, status, reset)
 ├── server.py                      # FastAPI app + Pydantic response models
 ├── config.py                      # pydantic-settings Settings + load_settings()
@@ -183,7 +183,7 @@ own ADR:
 |---|---|---|
 | Two extractor backends (Docling + Qwen-VL via `llama-server`) | Docling-only; `do_picture_description=True` is the in-process fallback if quality slips | [0003](decisions/0003-single-extraction-backend.md) |
 | Attachments PK = `(message_id, gmail_attachment_id)` | PK = `(message_id, part_id)`; `gmail_attachment_id` is a refreshable column | [0004](decisions/0004-attachment-key-uses-part-id.md) |
-| `~/.inbox-scanner/` is the data dir | Source checkout dev runs land in `<repo>/.inbox-scanner-data/`; wheel installs still use `~/.inbox-scanner/` | n/a — convention captured in [`../CLAUDE.md`](../CLAUDE.md) |
+| `~/.inboxaudit/` is the data dir | Source checkout dev runs land in `<repo>/.inboxaudit-data/`; wheel installs still use `~/.inboxaudit/` | n/a — convention captured in [`../CLAUDE.md`](../CLAUDE.md) |
 
 The plan's v2 backlog (Outlook, daemon mode, encrypted storage, etc.)
 is the canonical wishlist; nothing has been moved out of it.

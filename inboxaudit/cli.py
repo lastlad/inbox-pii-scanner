@@ -1,4 +1,4 @@
-"""Typer entrypoint for the inbox-scanner CLI."""
+"""Typer entrypoint for the inboxaudit CLI."""
 
 from __future__ import annotations
 
@@ -24,16 +24,16 @@ from rich.progress import (
 from rich.table import Table
 from sqlalchemy import func, select
 
-from inbox_scanner.config import Settings, load_settings
-from inbox_scanner.db import make_engine, make_session_factory, session_scope
-from inbox_scanner.detection.types import DetectorSet, Profile
-from inbox_scanner.gmail.auth import CredentialsMissing, run_oauth_flow
-from inbox_scanner.gmail.sync import MailboxScope, run_sync
-from inbox_scanner.logging import configure_logging, get_logger
-from inbox_scanner.migrations import apply_migrations
-from inbox_scanner.models import Attachment, Detection, Message, MessageVerdict, Scan, Sync
-from inbox_scanner.pipelines.scan_pipeline import run_scan
-from inbox_scanner.server import create_app
+from inboxaudit.config import Settings, load_settings
+from inboxaudit.db import make_engine, make_session_factory, session_scope
+from inboxaudit.detection.types import DetectorSet, Profile
+from inboxaudit.gmail.auth import CredentialsMissing, run_oauth_flow
+from inboxaudit.gmail.sync import MailboxScope, run_sync
+from inboxaudit.logging import configure_logging, get_logger
+from inboxaudit.migrations import apply_migrations
+from inboxaudit.models import Attachment, Detection, Message, MessageVerdict, Scan, Sync
+from inboxaudit.pipelines.scan_pipeline import run_scan
+from inboxaudit.server import create_app
 
 app = typer.Typer(
     help="Local-first, read-only Gmail PII scanner.",
@@ -102,7 +102,7 @@ def sync(
     and write metadata + attachment stubs to the local DB.
 
     Idempotent and resumable. Re-runs pick up only the messages that aren't
-    fully synced; Ctrl-C is safe at any time. Use ``inbox-scanner status``
+    fully synced; Ctrl-C is safe at any time. Use ``inboxaudit status``
     to see what's been captured.
     """
     if since is not None:
@@ -158,7 +158,7 @@ def sync(
         console.print(f"[red]{e}[/red]")
         raise typer.Exit(1) from None
 
-    console.print(f"[green]Sync {sync_id} complete.[/green] Run `inbox-scanner status` for details.")
+    console.print(f"[green]Sync {sync_id} complete.[/green] Run `inboxaudit status` for details.")
 
 
 # ---------- scan (still stubbed; arrives in steps 4-7) ----------
@@ -281,7 +281,7 @@ def scan(
         )
 
     console.print(
-        f"[green]Scan {scan_id} complete.[/green] Run `inbox-scanner status` for details."
+        f"[green]Scan {scan_id} complete.[/green] Run `inboxaudit status` for details."
     )
 
 
@@ -400,7 +400,7 @@ def status() -> None:
     console.print(f"[bold]db[/bold]:       {settings.db_path}")
 
     if last_sync is None:
-        console.print("[dim]no syncs yet — run `inbox-scanner auth` then `inbox-scanner sync --limit 5`[/dim]")
+        console.print("[dim]no syncs yet — run `inboxaudit auth` then `inboxaudit sync --limit 5`[/dim]")
         return
 
     sync_table = Table(title="Last sync", show_header=False, box=None)
@@ -484,7 +484,7 @@ def status() -> None:
 
     if verdict_total == 0:
         console.print(
-            "[dim]no detection results yet — run `inbox-scanner scan` to populate findings[/dim]"
+            "[dim]no detection results yet — run `inboxaudit scan` to populate findings[/dim]"
         )
         return
 
@@ -617,7 +617,7 @@ def reset(
     else:
         console.print(
             f"[green]Reset complete.[/green] Removed {len(removed)} item(s). "
-            "OAuth token preserved — run `inbox-scanner sync` to repopulate."
+            "OAuth token preserved — run `inboxaudit sync` to repopulate."
         )
 
 

@@ -1,4 +1,4 @@
-"""Tests for inbox_scanner.detection.categorizer.
+"""Tests for inboxaudit.detection.categorizer.
 
 The categorizer is the choke point that turns raw detector findings into
 the per-message verdicts the UI shows. Keep it well-pinned.
@@ -6,13 +6,13 @@ the per-message verdicts the UI shows. Keep it well-pinned.
 
 from __future__ import annotations
 
-from inbox_scanner.detection.categorizer import (
+from inboxaudit.detection.categorizer import (
     _REGISTRY,
     categorize,
     categorize_all,
     compute_verdict,
 )
-from inbox_scanner.detection.types import (
+from inboxaudit.detection.types import (
     FLAGGABLE_CATEGORIES,
     RISK_SCORE_CAP,
     RISK_WEIGHTS,
@@ -154,7 +154,7 @@ def test_every_registry_entry_is_valid():
     category that has a risk weight. A typo in either field would
     otherwise silently turn into "always drop" or "always score 0",
     which is hard to debug. Fail loudly instead."""
-    from inbox_scanner.detection.types import RISK_WEIGHTS
+    from inboxaudit.detection.types import RISK_WEIGHTS
 
     valid_tiers = {"critical", "all"}
     weighted_categories = set(RISK_WEIGHTS.keys())

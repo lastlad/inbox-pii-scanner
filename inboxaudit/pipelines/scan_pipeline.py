@@ -3,7 +3,7 @@
 Two stages:
 
 * **Extract** — iterates downloaded attachments, routes each via the
-  :mod:`router <inbox_scanner.extraction.router>`, runs Docling on
+  :mod:`router <inboxaudit.extraction.router>`, runs Docling on
   supported mimes, writes markdown to
   ``<data_dir>/extracted/<content_hash>.md``, and updates the
   ``Attachment.extraction_*`` columns. Cached by ``content_hash`` so two
@@ -11,7 +11,7 @@ Two stages:
 
 * **Detect** — reads the extracted markdown, runs Presidio + Privacy
   Filter + custom regex via the :mod:`detection runner
-  <inbox_scanner.detection.runner>`, and rewrites the ``detections`` and
+  <inboxaudit.detection.runner>`, and rewrites the ``detections`` and
   ``message_verdicts`` rows for every message touched. Detection results
   are scan-scoped: re-running ``scan`` blows away the prior scan's
   detections for the affected attachments and writes fresh ones, so
@@ -31,20 +31,20 @@ from pathlib import Path
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from inbox_scanner.blobs import read_blob
-from inbox_scanner.config import Settings
-from inbox_scanner.db import session_scope
-from inbox_scanner.detection import categorizer, runner as detection_runner
-from inbox_scanner.detection.types import (
+from inboxaudit.blobs import read_blob
+from inboxaudit.config import Settings
+from inboxaudit.db import session_scope
+from inboxaudit.detection import categorizer, runner as detection_runner
+from inboxaudit.detection.types import (
     Detection as DetectionTuple,
     DetectorSet,
     Finding,
     Profile,
 )
-from inbox_scanner.extraction import docling_extractor
-from inbox_scanner.extraction.router import route as route_attachment
-from inbox_scanner.logging import get_logger
-from inbox_scanner.models import Attachment, Detection, Message, MessageVerdict, Scan
+from inboxaudit.extraction import docling_extractor
+from inboxaudit.extraction.router import route as route_attachment
+from inboxaudit.logging import get_logger
+from inboxaudit.models import Attachment, Detection, Message, MessageVerdict, Scan
 
 log = get_logger("scan")
 

@@ -6,10 +6,10 @@ Context for Claude Code working autonomously on this repo. Read it once per sess
 
 Local-first, **strictly read-only** Gmail PII scanner. Two-phase design:
 
-1. **Sync** (`inbox-scanner sync`) — talks to Gmail, downloads message metadata + attachment bytes into content-addressed blob storage. Idempotent and resumable.
-2. **Scan** (`inbox-scanner scan`) — fully offline. Extracts text via Docling 2.x, runs Presidio + Privacy Filter + custom-regex detection, writes findings + per-message verdicts to SQLite.
+1. **Sync** (`inboxaudit sync`) — talks to Gmail, downloads message metadata + attachment bytes into content-addressed blob storage. Idempotent and resumable.
+2. **Scan** (`inboxaudit scan`) — fully offline. Extracts text via Docling 2.x, runs Presidio + Privacy Filter + custom-regex detection, writes findings + per-message verdicts to SQLite.
 
-`inbox-scanner serve` exposes a read-only FastAPI on `127.0.0.1:8765` with an Alpine.js review UI at `/`.
+`inboxaudit serve` exposes a read-only FastAPI on `127.0.0.1:8765` with an Alpine.js review UI at `/`.
 
 **`docs/archives/IMPLEMENTATION_PLAN.md` is the authoritative spec** — data model, module structure, detector list, build-order, v2 backlog. Read it before making non-trivial changes; update it in the same change if you diverge.
 
@@ -28,8 +28,8 @@ This project uses **`uv`** with a project-local `.venv/`. **Never `pip install` 
 | `uv add --dev <pkg>` | Add a dev dep |
 | `uv run pytest -q` | Run the full test suite (~4 s) |
 | `uv run pytest tests/test_X.py -v` | Run one test file verbosely |
-| `uv run inbox-scanner <cmd>` | Run any CLI command inside the venv |
-| `INBOX_SCANNER_DATA_DIR=$(mktemp -d) uv run alembic revision --autogenerate -m "..."` | Generate a new migration after model changes |
+| `uv run inboxaudit <cmd>` | Run any CLI command inside the venv |
+| `INBOXAUDIT_DATA_DIR=$(mktemp -d) uv run alembic revision --autogenerate -m "..."` | Generate a new migration after model changes |
 | `uv build --wheel` | Build a wheel under `dist/` |
 
 Python is pinned to **3.11** via `.python-version`.
@@ -40,16 +40,16 @@ Python is pinned to **3.11** via `.python-version`.
 
 | Mode | Trigger | data_dir |
 |---|---|---|
-| Source checkout (dev) | `pyproject.toml` reachable upward | `<repo>/.inbox-scanner-data/` |
-| Installed wheel (end user) | no `pyproject.toml` upward | `~/.inbox-scanner/` |
-| Explicit override | `INBOX_SCANNER__DATA_DIR` env var | wins over both |
+| Source checkout (dev) | `pyproject.toml` reachable upward | `<repo>/.inboxaudit-data/` |
+| Installed wheel (end user) | no `pyproject.toml` upward | `~/.inboxaudit/` |
+| Explicit override | `INBOXAUDIT__DATA_DIR` env var | wins over both |
 
-Everything (SQLite, blobs, extracted markdown, logs, OAuth artefacts) lands at `<repo>/.inbox-scanner-data/` during dev. Gitignored. Easy to nuke (`inbox-scanner reset --all -y`).
+Everything (SQLite, blobs, extracted markdown, logs, OAuth artefacts) lands at `<repo>/.inboxaudit-data/` during dev. Gitignored. Easy to nuke (`inboxaudit reset --all -y`).
 
 - **Do not** introduce a `.env` file. `.gitignore` blocks `.env*` defensively. Per-environment overrides go in `<data_dir>/config.yaml` or shell env vars.
-- **Do not** point dev runs at `~/.inbox-scanner/` — that's the documented end-user default.
-- Tests pass `INBOX_SCANNER__DATA_DIR=<tmpdir>` via the `fresh_data_dir` fixture in `tests/test_server.py` (and the populated variant in `tests/test_reset.py`). Reuse those fixtures rather than rolling your own.
-- Migrations auto-run on every CLI invocation via `inbox_scanner.migrations.apply_migrations`. Run alembic by hand only when generating new revisions.
+- **Do not** point dev runs at `~/.inboxaudit/` — that's the documented end-user default.
+- Tests pass `INBOXAUDIT__DATA_DIR=<tmpdir>` via the `fresh_data_dir` fixture in `tests/test_server.py` (and the populated variant in `tests/test_reset.py`). Reuse those fixtures rather than rolling your own.
+- Migrations auto-run on every CLI invocation via `inboxaudit.migrations.apply_migrations`. Run alembic by hand only when generating new revisions.
 
 ## Architecture: keep the two phases separate
 
@@ -67,9 +67,9 @@ DB: `syncs`/`scans` are run tables; `messages`/`attachments` carry sync state; `
 ## Load-bearing constraints
 
 - **Read-only Gmail scope only** (`gmail.readonly`). Never request a write scope. Each user supplies their own OAuth client.
-- **Localhost only.** `inbox-scanner serve` binds `127.0.0.1`. Warn loudly if `--host` overrides.
+- **Localhost only.** `inboxaudit serve` binds `127.0.0.1`. Warn loudly if `--host` overrides.
 - **Content-addressed blob storage.** `<data_dir>/attachments/blobs/<sha[:2]>/<sha[2:4]>/<sha>`. Identical bytes share a blob; multiple `attachments` rows can point to the same `content_hash`. Cache extraction by hash. Per-attachment delete is unsafe — out of scope for v1.
-- **Gmail rate limit:** token-bucket at 20 req/sec global, exp backoff with jitter on 429/503, 4 worker tasks. Implementation: `inbox_scanner.gmail.rate_limiter.TokenBucket`.
+- **Gmail rate limit:** token-bucket at 20 req/sec global, exp backoff with jitter on 429/503, 4 worker tasks. Implementation: `inboxaudit.gmail.rate_limiter.TokenBucket`.
 - **Gmail attachment IDs expire** after a few hours. Composite primary key on `attachments` is `(message_id, part_id)` — `part_id` is documented immutable. The volatile `gmail_attachment_id` lives in its own column and is refreshed on every metadata fetch. **Never** put `gmail_attachment_id` in a primary key.
 - **Single extraction backend (Docling 2.x).** The plan originally called for a Qwen-VL via `llama-server` second backend; we collapsed to Docling-only after testing showed its built-in OCR handles everything. **Don't reintroduce a separate VLM backend.** If quality drops on a class of attachment, opt into Docling's own `do_picture_description=True` (loads SmolVLM in-process) before reaching for a second HTTP service.
 - **Sync skip filters happen pre-download** (mime denylist, <1 KB, >50 MB, inline Content-ID images). Goal: don't pull bytes we'll never use.
@@ -82,19 +82,19 @@ No write access to Gmail. No daemon/incremental mode. No email-body scanning. No
 ## CLI surface
 
 ```
-inbox-scanner auth                                              # OAuth handshake; saves token.json
-inbox-scanner sync   [--limit N] [--since YYYY-MM-DD]           # Phase 1
-inbox-scanner scan   [--force-extract] [--only-extract|--only-detect] [--profile critical|all] [--detectors presidio|privacy_filter|all]  # Phase 2
-inbox-scanner serve  [--host HOST] [--port 8765]                # FastAPI + UI
-inbox-scanner status                                            # sync + scan + verdict tables
-inbox-scanner reset  [--keep-attachments] [--keep-extractions] [--all] [-y]
+inboxaudit auth                                              # OAuth handshake; saves token.json
+inboxaudit sync   [--limit N] [--since YYYY-MM-DD]           # Phase 1
+inboxaudit scan   [--force-extract] [--only-extract|--only-detect] [--profile critical|all] [--detectors presidio|privacy_filter|all]  # Phase 2
+inboxaudit serve  [--host HOST] [--port 8765]                # FastAPI + UI
+inboxaudit status                                            # sync + scan + verdict tables
+inboxaudit reset  [--keep-attachments] [--keep-extractions] [--all] [-y]
 ```
 
 ## Code conventions
 
 - **Type hints required** on every public function. Use `from __future__ import annotations` so PEP 604 (`X | None`) works on 3.11. Prefer `pathlib.Path` over strings for paths.
 - **Module docstring on every module** explaining what it does and any non-obvious design choice. Public functions get a short docstring; trivial helpers don't. Match the existing style — comments explain *why*, not *what*.
-- **Logging:** use `inbox_scanner.logging.get_logger(name)`. Structured key=value via `log.info("event_name", k=v, …)`. Console handler is lifted to WARNING during long sync/scan runs (see `_quiet_console_logging` in `cli.py`); INFO still hits the file log.
+- **Logging:** use `inboxaudit.logging.get_logger(name)`. Structured key=value via `log.info("event_name", k=v, …)`. Console handler is lifted to WARNING during long sync/scan runs (see `_quiet_console_logging` in `cli.py`); INFO still hits the file log.
 - **Errors at boundaries:** raise typed exceptions for user-facing failures (e.g. `CredentialsMissing` in `gmail/auth.py`). The CLI catches them and prints a clean message — never let stack traces surface in `auth`/`serve` paths.
 - **Async DB writes via `asyncio.to_thread`.** SQLAlchemy is sync. Async pipelines wrap DB calls in `asyncio.to_thread(...)` and use `session_scope()` for transaction boundaries. SQLite WAL handles 4-worker concurrency.
 - **Silence noisy third-party loggers at use site.** Pattern: at first call to `_get_engine()` / `_get_pipeline()`, lift the relevant `logging.getLogger("...")` to `ERROR` (we already do this for `presidio-analyzer`, `transformers`, `huggingface_hub`, `alembic`). Don't try to silence them globally at startup — it interacts poorly with rich progress bars.
@@ -114,24 +114,24 @@ inbox-scanner reset  [--keep-attachments] [--keep-extractions] [--all] [-y]
 3. Add positive + negative tests in the appropriate `tests/test_*` file.
 
 **Changing a SQLAlchemy model:**
-1. Edit `inbox_scanner/models.py`.
-2. `INBOX_SCANNER_DATA_DIR=$(mktemp -d) uv run alembic upgrade head` to bring a tmpdir DB to current head.
+1. Edit `inboxaudit/models.py`.
+2. `INBOXAUDIT_DATA_DIR=$(mktemp -d) uv run alembic upgrade head` to bring a tmpdir DB to current head.
 3. Same env var for: `uv run alembic revision --autogenerate -m "<msg>"` to generate the migration.
 4. Review the generated file in `alembic/versions/` — autogenerate sometimes misses constraint-only changes and never picks up data backfills.
 
 **UI changes to `frontend/index.html`:**
-1. `uv run inbox-scanner serve`, visit `http://127.0.0.1:8765`.
+1. `uv run inboxaudit serve`, visit `http://127.0.0.1:8765`.
 2. Open browser devtools and check the console. Alpine evaluates templates eagerly even under `x-show=false`, so always use optional chaining (`stats?.scan?.x ?? 0`) for fields that load asynchronously.
 3. The Playwright MCP tools are the right way to drive a real browser session for smoke tests — but **never commit screenshots**: they render real PII from the dev corpus and `.gitignore` blocks `*.png` at the repo root for that reason.
 
 **Smoke-testing the full pipeline against a tmpdir** (no risk to dev data):
 ```sh
 TMP=$(mktemp -d)
-INBOX_SCANNER__DATA_DIR=$TMP uv run inbox-scanner status   # bootstraps schema
+INBOXAUDIT__DATA_DIR=$TMP uv run inboxaudit status   # bootstraps schema
 # … drop credentials.json into $TMP, then …
-INBOX_SCANNER__DATA_DIR=$TMP uv run inbox-scanner auth
-INBOX_SCANNER__DATA_DIR=$TMP uv run inbox-scanner sync --limit 5
-INBOX_SCANNER__DATA_DIR=$TMP uv run inbox-scanner scan
+INBOXAUDIT__DATA_DIR=$TMP uv run inboxaudit auth
+INBOXAUDIT__DATA_DIR=$TMP uv run inboxaudit sync --limit 5
+INBOXAUDIT__DATA_DIR=$TMP uv run inboxaudit scan
 ```
 
 ## Commit style
@@ -149,7 +149,7 @@ Add read-only FastAPI server; fix Privacy Filter span splitting
 
 ## External services the user runs themselves
 
-- **Google Cloud OAuth client.** User creates the project, enables Gmail API, drops `credentials.json` into the data dir. If missing, `inbox-scanner auth` prints exactly what to do — don't let stack traces surface.
+- **Google Cloud OAuth client.** User creates the project, enables Gmail API, drops `credentials.json` into the data dir. If missing, `inboxaudit auth` prints exactly what to do — don't let stack traces surface.
 
 That's the only external dependency. (Earlier plan had `llama-server`; removed when we collapsed to Docling-only.)
 
@@ -162,5 +162,5 @@ That's the only external dependency. (Earlier plan had `llama-server`; removed w
 - **First scan downloads ~5 GB of models** under `~/.cache/huggingface/hub/`: ~2 GB Docling layout/table/OCR + ~2.6 GB Privacy Filter. The `docling.first_call_may_download_models` log line fires once per process.
 - **`opencv-python-headless` (not `opencv-python`)** is an explicit dep. Docling's `OcrAutoOptions` may pick EasyOCR on macOS, which imports `cv2`; the GUI-flavored wheel often fails to load on headless Macs. If you ever see `ModuleNotFoundError: No module named 'cv2'` from a Docling extraction, check the headless variant is installed.
 - Re-running `scan` rewrites `detections` and `message_verdicts` (scan-scoped). Extraction results are cached by `content_hash` and skipped unless `--force-extract`. Identical bytes from multiple emails share one `.md` cache file.
-- **Reset semantics:** `inbox-scanner reset` (default) keeps OAuth artefacts and wipes everything else. `--keep-attachments` / `--keep-extractions` are composable. `--all` nukes the entire data dir. Confirmation prompt unless `-y`.
+- **Reset semantics:** `inboxaudit reset` (default) keeps OAuth artefacts and wipes everything else. `--keep-attachments` / `--keep-extractions` are composable. `--all` nukes the entire data dir. Confirmation prompt unless `-y`.
 - **Browser-test screenshots from Playwright contain real PII** from the dev corpus. `.gitignore` blocks `*.png` / `*.jpg` / `*.jpeg` at the repo root and `.playwright-mcp/`. Never commit them.

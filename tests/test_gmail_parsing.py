@@ -1,4 +1,4 @@
-"""Tests for the pure helpers in inbox_scanner.gmail.client.
+"""Tests for the pure helpers in inboxaudit.gmail.client.
 
 These are the bits most likely to break in production (header weirdness,
 nested multipart trees, non-attachment leaf parts) and they don't need a
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from inbox_scanner.gmail.client import (
+from inboxaudit.gmail.client import (
     parse_headers,
     parse_received_at,
     walk_attachment_parts,

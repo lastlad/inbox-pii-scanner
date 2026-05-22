@@ -47,20 +47,20 @@ from googleapiclient.errors import HttpError
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from inbox_scanner.blobs import store_blob
-from inbox_scanner.config import Settings
-from inbox_scanner.db import session_scope
-from inbox_scanner.gmail.auth import load_credentials
-from inbox_scanner.gmail.client import (
+from inboxaudit.blobs import store_blob
+from inboxaudit.config import Settings
+from inboxaudit.db import session_scope
+from inboxaudit.gmail.auth import load_credentials
+from inboxaudit.gmail.client import (
     GmailClient,
     make_composite_attachment_id,
     parse_headers,
     parse_received_at,
     walk_attachment_parts,
 )
-from inbox_scanner.gmail.rate_limiter import TokenBucket
-from inbox_scanner.logging import get_logger
-from inbox_scanner.models import Attachment, Message, Sync
+from inboxaudit.gmail.rate_limiter import TokenBucket
+from inboxaudit.logging import get_logger
+from inboxaudit.models import Attachment, Message, Sync
 
 # Mime types that are almost never useful as PII targets — drop them at sync
 # time so we don't waste bytes on the wire.

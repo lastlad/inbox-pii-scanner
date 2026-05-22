@@ -1,4 +1,4 @@
-"""Tests for inbox_scanner.detection.runner.
+"""Tests for inboxaudit.detection.runner.
 
 Pins the three-way ``DetectorSet`` switch: each mode must invoke exactly
 the right detectors and skip the others. Monkeypatching each detector
@@ -8,8 +8,8 @@ singleton model loads.
 
 from __future__ import annotations
 
-from inbox_scanner.detection import presidio_detector, privacy_filter_detector, runner
-from inbox_scanner.detection.types import DetectorSet
+from inboxaudit.detection import presidio_detector, privacy_filter_detector, runner
+from inboxaudit.detection.types import DetectorSet
 
 
 def _record(sink: list[str], name: str):

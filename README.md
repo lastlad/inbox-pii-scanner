@@ -34,8 +34,8 @@ Quit and reopen Terminal so the new tool is available.
 ### 2. Get the code
 
 ```sh
-git clone <REPO_URL_HERE> inbox-pii-scanner
-cd inbox-pii-scanner
+git clone <REPO_URL_HERE> inboxaudit
+cd inboxaudit
 uv sync
 ```
 
@@ -72,22 +72,22 @@ OAuth client yourself, so nothing routes through someone else's project.
    - Name: anything.
    - Click **Create**, then **Download JSON** in the popup.
 8. Save the downloaded file as **`credentials.json`** inside the
-   `.inbox-scanner-data/` folder of this project.
+   `.inboxaudit-data/` folder of this project.
 
    The folder doesn't exist yet on a fresh checkout. Create it with:
 
    ```sh
-   uv run inbox-scanner status
+   uv run inboxaudit status
    ```
 
    That command sets up the folder layout (and reports nothing because
    you haven't synced anything yet). Then move `credentials.json` into
-   `.inbox-scanner-data/`.
+   `.inboxaudit-data/`.
 
 ### 4. Sign in
 
 ```sh
-uv run inbox-scanner auth
+uv run inboxaudit auth
 ```
 
 A browser window opens. Pick your Gmail account and approve the
@@ -104,7 +104,7 @@ later you can re-run any of them as needed.
 ### Pull your inbox
 
 ```sh
-uv run inbox-scanner sync
+uv run inboxaudit sync
 ```
 
 Downloads every email that has at least one attachment, and saves the
@@ -117,7 +117,7 @@ it left off.
 To test the setup with a small batch first:
 
 ```sh
-uv run inbox-scanner sync --limit 20
+uv run inboxaudit sync --limit 20
 ```
 
 By default sync pulls every message with an attachment — inbox, sent, and
@@ -126,7 +126,7 @@ case — IDs sent to verify accounts, contracts to lawyers, forms to
 accountants), narrow the scope:
 
 ```sh
-uv run inbox-scanner sync --mailbox sent
+uv run inboxaudit sync --mailbox sent
 ```
 
 `--mailbox inbox` is also available if you want received-only.
@@ -134,7 +134,7 @@ uv run inbox-scanner sync --mailbox sent
 ### Scan the attachments
 
 ```sh
-uv run inbox-scanner scan
+uv run inboxaudit scan
 ```
 
 Reads the documents you just downloaded, extracts text from PDFs,
@@ -153,7 +153,7 @@ licenses, credit cards, bank/IBAN numbers, ITINs, and API
 keys/passwords. To cast a wider net:
 
 ```sh
-uv run inbox-scanner scan --profile all   # also flags broader account-shaped numbers + records names, addresses, emails, phones, etc.
+uv run inboxaudit scan --profile all   # also flags broader account-shaped numbers + records names, addresses, emails, phones, etc.
 ```
 
 Switching profiles requires a re-scan (results are rewritten each run).
@@ -161,7 +161,7 @@ Switching profiles requires a re-scan (results are rewritten each run).
 ### Review in your browser
 
 ```sh
-uv run inbox-scanner serve
+uv run inboxaudit serve
 ```
 
 Opens a local web app at <http://127.0.0.1:8765>. The dashboard summarises
@@ -183,7 +183,7 @@ terminal.
 
 ## Where your data lives
 
-Everything is in the `.inbox-scanner-data/` folder inside the project:
+Everything is in the `.inboxaudit-data/` folder inside the project:
 
 | File / folder         | What's in it                                          |
 |----------------------|-------------------------------------------------------|
@@ -204,7 +204,7 @@ Most of the time you don't want to redo the Google sign-in. To wipe just
 the local database and re-pull from Gmail:
 
 ```sh
-uv run inbox-scanner reset
+uv run inboxaudit reset
 ```
 
 That keeps `token.json` and `credentials.json` and clears everything
@@ -214,10 +214,10 @@ Other useful variants:
 
 | Command                                              | What it keeps                                                  |
 |------------------------------------------------------|---------------------------------------------------------------|
-| `inbox-scanner reset`                                | OAuth token + credentials                                     |
-| `inbox-scanner reset --keep-attachments`             | Above + downloaded attachment files (skip Gmail re-download) |
-| `inbox-scanner reset --keep-attachments --keep-extractions` | Above + extracted text cache (skip Docling re-run)    |
-| `inbox-scanner reset --all`                          | Nothing — full nuke, including the OAuth setup               |
+| `inboxaudit reset`                                | OAuth token + credentials                                     |
+| `inboxaudit reset --keep-attachments`             | Above + downloaded attachment files (skip Gmail re-download) |
+| `inboxaudit reset --keep-attachments --keep-extractions` | Above + extracted text cache (skip Docling re-run)    |
+| `inboxaudit reset --all`                          | Nothing — full nuke, including the OAuth setup               |
 
 ## Limits
 

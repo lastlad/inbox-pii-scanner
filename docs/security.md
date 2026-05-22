@@ -33,7 +33,7 @@ most of the design choices below.
 
 - **Scope:** `https://www.googleapis.com/auth/gmail.readonly` only.
   Pinned in
-  [`inbox_scanner/gmail/auth.py::GMAIL_SCOPES`](../inbox_scanner/gmail/auth.py).
+  [`inboxaudit/gmail/auth.py::GMAIL_SCOPES`](../inboxaudit/gmail/auth.py).
   Never widened. Every Gmail call sits behind a service object built
   from credentials carrying only that scope, so a programming error
   that tried to call `messages.modify` or `messages.send` would fail
@@ -54,8 +54,8 @@ most of the design choices below.
 ## Localhost-only by default
 
 The FastAPI server binds `127.0.0.1` and ships with no authentication
-([`server.py`](../inbox_scanner/server.py),
-[`cli.py::serve`](../inbox_scanner/cli.py)). The defense is the bind
+([`server.py`](../inboxaudit/server.py),
+[`cli.py::serve`](../inboxaudit/cli.py)). The defense is the bind
 address: only processes on the same machine can reach the API.
 
 This is acceptable because:
@@ -124,10 +124,10 @@ modern Macs.
   calls are `messages.list`, `messages.get`, and
   `messages.attachments.get` — all idempotent reads.
 - **No FastAPI write routes.** Inspect
-  [`server.py`](../inbox_scanner/server.py): every `@app.get`, no
+  [`server.py`](../inboxaudit/server.py): every `@app.get`, no
   `@app.post`/`@app.put`/`@app.delete`. The API cannot modify any
   state, local or remote.
-- **Reset is local-only.** `inbox-scanner reset` deletes files in the
+- **Reset is local-only.** `inboxaudit reset` deletes files in the
   data dir. It never touches Gmail.
 
 A user reviewing a flagged email is expected to:
@@ -160,12 +160,12 @@ filter that drops the noisier fields.
 ## Token & credential rotation
 
 - **Rotating the OAuth client:** drop a new `credentials.json` into
-  the data dir, then `inbox-scanner auth` again. The previous token is
+  the data dir, then `inboxaudit auth` again. The previous token is
   overwritten.
 - **Revoking access:** visit <https://myaccount.google.com/permissions>
   and revoke the OAuth client. The next `sync` will fail with a
   `CredentialsMissing`-shaped error; run `auth` again to re-authenticate.
-- **Wiping everything locally:** `inbox-scanner reset --all -y`. After
+- **Wiping everything locally:** `inboxaudit reset --all -y`. After
   that the only place the data lived was in your inbox to begin with.
 
 ## Browser-side considerations

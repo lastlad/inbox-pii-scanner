@@ -10,13 +10,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 #: Documented end-user default. Used when no source checkout is detected and
 #: no explicit override is provided.
-USER_DATA_DIR = Path.home() / ".inbox-scanner"
+USER_DATA_DIR = Path.home() / ".inboxaudit"
 
 #: Repo-local data dir name used during development.
-DEV_DATA_DIRNAME = ".inbox-scanner-data"
+DEV_DATA_DIRNAME = ".inboxaudit-data"
 
 CONFIG_FILENAME = "config.yaml"
-ENV_DATA_DIR_VAR = "INBOX_SCANNER__DATA_DIR"
+ENV_DATA_DIR_VAR = "INBOXAUDIT__DATA_DIR"
 
 
 def find_project_root(start: Path | None = None) -> Path | None:
@@ -38,10 +38,10 @@ def default_data_dir() -> Path:
     """Pick the data directory to use when no override is provided.
 
     Inside a source checkout (a ``pyproject.toml`` is reachable upward from
-    cwd), prefer ``<repo>/.inbox-scanner-data/`` so dev state stays inside
+    cwd), prefer ``<repo>/.inboxaudit-data/`` so dev state stays inside
     the repo and is easy to inspect / reset / nuke. End users running an
     installed wheel won't have a ``pyproject.toml`` upward, so they fall
-    through to the documented ``~/.inbox-scanner`` default.
+    through to the documented ``~/.inboxaudit`` default.
 
     This means we ship **no** committed config file, no ``.env``, and no
     "copy this template" step — running the CLI from a clean clone Just
@@ -87,7 +87,7 @@ class Settings(BaseSettings):
     2. ``<data_dir>/config.yaml`` if present (user-editable, gitignored —
        this is where API keys / OAuth client paths / detector thresholds
        belong).
-    3. Environment variables prefixed ``INBOX_SCANNER__``.
+    3. Environment variables prefixed ``INBOXAUDIT__``.
 
     No ``.env`` support. Secrets and per-environment overrides go in
     ``config.yaml`` inside the data directory (which is gitignored), or in
@@ -95,7 +95,7 @@ class Settings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_prefix="INBOX_SCANNER__",
+        env_prefix="INBOXAUDIT__",
         env_nested_delimiter="__",
         extra="ignore",
     )
@@ -154,9 +154,9 @@ def load_settings(data_dir: Path | None = None) -> Settings:
     Resolution order for ``data_dir``:
 
     1. Explicit ``data_dir`` argument.
-    2. ``INBOX_SCANNER__DATA_DIR`` environment variable.
+    2. ``INBOXAUDIT__DATA_DIR`` environment variable.
     3. :func:`default_data_dir` — repo-local in a source checkout, else
-       ``~/.inbox-scanner``.
+       ``~/.inboxaudit``.
 
     Relative paths in (1) and (2) resolve against the project root (the
     directory containing ``pyproject.toml``), so a shell-exported override

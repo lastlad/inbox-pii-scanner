@@ -90,12 +90,12 @@ exhaustive.
 
 ## Encoded in
 
-- `inbox_scanner/detection/presidio_detector.py`
-- `inbox_scanner/detection/privacy_filter_detector.py`
-- `inbox_scanner/detection/custom_regex.py`
-- `inbox_scanner/detection/categorizer.py` — the single source of
+- `inboxaudit/detection/presidio_detector.py`
+- `inboxaudit/detection/privacy_filter_detector.py`
+- `inboxaudit/detection/custom_regex.py`
+- `inboxaudit/detection/categorizer.py` — the single source of
   truth for `(detector, subtype) → user_category`.
-- `inbox_scanner/detection/runner.py` — orchestrator.
+- `inboxaudit/detection/runner.py` — orchestrator.
 - `tests/test_categorizer.py::test_every_mapped_category_is_known` —
   the coverage test that forces new subtypes to land a category +
   weight in the same commit.

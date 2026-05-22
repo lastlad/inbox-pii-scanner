@@ -1,7 +1,7 @@
 # Frontend
 
 Single HTML file at
-[`inbox_scanner/frontend/index.html`](../inbox_scanner/frontend/index.html),
+[`inboxaudit/frontend/index.html`](../inboxaudit/frontend/index.html),
 served verbatim by the FastAPI app's `GET /` route. No build step. No
 bundler. No npm.
 

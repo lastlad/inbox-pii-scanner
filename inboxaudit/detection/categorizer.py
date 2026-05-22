@@ -12,7 +12,7 @@ Verdict computation (``compute_verdict``):
   message with only ``other_pii`` findings (names, addresses, emails
   alone) is informational and does not flag.
 * ``risk_score`` sums per-category weights from
-  :data:`inbox_scanner.detection.types.RISK_WEIGHTS` over the message's
+  :data:`inboxaudit.detection.types.RISK_WEIGHTS` over the message's
   detections, capped at :data:`RISK_SCORE_CAP`.
 * ``top_category`` is the highest-weighted category present (ties
   broken by detection count, then alphabetical for determinism).
@@ -24,7 +24,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import Iterable, NamedTuple
 
-from inbox_scanner.detection.types import (
+from inboxaudit.detection.types import (
     FLAGGABLE_CATEGORIES,
     RISK_SCORE_CAP,
     RISK_WEIGHTS,

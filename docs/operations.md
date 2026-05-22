@@ -6,17 +6,17 @@ they're created, and how to clean them up safely.
 ## Data directory
 
 Resolved by
-[`inbox_scanner/config.py::load_settings`](../inbox_scanner/config.py)
+[`inboxaudit/config.py::load_settings`](../inboxaudit/config.py)
 on every CLI invocation:
 
 | Mode | Trigger | data_dir |
 |---|---|---|
-| Source checkout (dev) | `pyproject.toml` reachable upward from cwd | `<repo>/.inbox-scanner-data/` |
-| Installed wheel | no `pyproject.toml` upward | `~/.inbox-scanner/` |
-| Explicit override | `INBOX_SCANNER__DATA_DIR=...` env var | wins over both |
+| Source checkout (dev) | `pyproject.toml` reachable upward from cwd | `<repo>/.inboxaudit-data/` |
+| Installed wheel | no `pyproject.toml` upward | `~/.inboxaudit/` |
+| Explicit override | `INBOXAUDIT__DATA_DIR=...` env var | wins over both |
 
 Relative override paths resolve against the project root (the folder
-containing `pyproject.toml`), so `INBOX_SCANNER__DATA_DIR=./foo` works
+containing `pyproject.toml`), so `INBOXAUDIT__DATA_DIR=./foo` works
 from any subdir of the checkout.
 
 ## Directory layout
@@ -26,7 +26,7 @@ After a full setup + sync + scan, the data dir looks like:
 ```
 <data_dir>/
 ├── credentials.json         # User-provided Google OAuth client (step 3 of README)
-├── token.json               # OAuth refresh token (created by `inbox-scanner auth`)
+├── token.json               # OAuth refresh token (created by `inboxaudit auth`)
 ├── state.db                 # SQLite — sync state, scan state, findings, verdicts
 ├── state.db-wal             # WAL journal (transient, present while DB is open)
 ├── state.db-shm             # WAL shared-memory file (same)
@@ -56,7 +56,7 @@ External to the data dir but tied to it:
 | `~/.cache/huggingface/hub/` | Docling models (~2 GB) + Privacy Filter (~2.6 GB) | shared across all checkouts |
 | `~/.cache/easyocr/` | EasyOCR weights (downloaded lazily on first OCR call) | shared |
 
-Both HF caches sit outside the data dir on purpose — `inbox-scanner
+Both HF caches sit outside the data dir on purpose — `inboxaudit
 reset --all` doesn't blow them away, so the next setup is fast.
 
 ## File lifecycle
@@ -64,19 +64,19 @@ reset --all` doesn't blow them away, so the next setup is fast.
 ### `credentials.json`
 
 - Created by: the user, during README step 3.
-- Read by: `inbox-scanner auth` (once) and `inbox-scanner serve` /
+- Read by: `inboxaudit auth` (once) and `inboxaudit serve` /
   `sync` indirectly when they call into the Gmail SDK.
-- Deleted by: `inbox-scanner reset --all`. Default `reset` preserves
+- Deleted by: `inboxaudit reset --all`. Default `reset` preserves
   it.
 
 ### `token.json`
 
-- Created by: `inbox-scanner auth`.
+- Created by: `inboxaudit auth`.
 - Read by: every Gmail-touching command via
-  [`gmail/auth.py::load_credentials`](../inbox_scanner/gmail/auth.py).
+  [`gmail/auth.py::load_credentials`](../inboxaudit/gmail/auth.py).
 - Updated by: silent refresh when the access token expires (the
   refresh token is long-lived).
-- Deleted by: `inbox-scanner reset --all`.
+- Deleted by: `inboxaudit reset --all`.
 
 ### `state.db` (+ `-wal`, `-shm`)
 
@@ -86,7 +86,7 @@ reset --all` doesn't blow them away, so the next setup is fast.
 - WAL files appear when any SQLite handle is open. They're checkpointed
   back into the main file on clean shutdown. Safe to delete only when
   no scanner process is running.
-- Deleted by: any default `inbox-scanner reset`.
+- Deleted by: any default `inboxaudit reset`.
 
 ### `attachments/blobs/<ab>/<cd>/<hash>`
 
@@ -97,7 +97,7 @@ reset --all` doesn't blow them away, so the next setup is fast.
 - Content-addressed: two attachments with identical bytes share one
   file. The DB schema acknowledges this — `attachments.content_hash`
   is the join key, not the file path.
-- Deleted by: default `inbox-scanner reset` (unless
+- Deleted by: default `inboxaudit reset` (unless
   `--keep-attachments`).
 
 ### `extracted/<content_hash>.md`
@@ -107,7 +107,7 @@ reset --all` doesn't blow them away, so the next setup is fast.
 - Read by: the scan pipeline's detect stage and `GET /api/email/{id}`.
 - Cached across scan runs: re-running scan reuses these unless
   `--force-extract` is passed.
-- Deleted by: default `inbox-scanner reset` (unless
+- Deleted by: default `inboxaudit reset` (unless
   `--keep-extractions`).
 
 ### `logs/*.log`
@@ -119,11 +119,11 @@ reset --all` doesn't blow them away, so the next setup is fast.
   UTC), `level`, `event`, plus any extra key-value pairs.
 - Rotation: none in v1. Logs grow indefinitely; a periodic `reset`
   truncates them. v2 backlog item.
-- Deleted by: default `inbox-scanner reset`.
+- Deleted by: default `inboxaudit reset`.
 
 ## Reset semantics
 
-[`inbox-scanner reset`](cli.md#reset) implements four behaviours:
+[`inboxaudit reset`](cli.md#reset) implements four behaviours:
 
 | Variant | OAuth (token + credentials) | `state.db` | `attachments/` | `extracted/` | `logs/` |
 |---|---|---|---|---|---|
@@ -134,12 +134,12 @@ reset --all` doesn't blow them away, so the next setup is fast.
 | `reset --all` | wipe | wipe | wipe | wipe | wipe (entire dir gone) |
 
 Confirmation prompt unless `-y`. Source of truth:
-[`cli.py::_planned_reset_targets`](../inbox_scanner/cli.py) and
+[`cli.py::_planned_reset_targets`](../inboxaudit/cli.py) and
 `_execute_reset` immediately below it.
 
 Recovery from each:
 
-- After default `reset`: `inbox-scanner sync` re-pulls everything.
+- After default `reset`: `inboxaudit sync` re-pulls everything.
   Token survives so no re-OAuth.
 - After `reset --keep-attachments`: `sync` rebuilds DB rows but blob
   storage is intact, so no Gmail bandwidth.
@@ -164,17 +164,17 @@ Recovery from each:
 
 Schema changes follow the standard Alembic flow. The CLI auto-applies
 migrations on every invocation
-([`migrations.py::apply_migrations`](../inbox_scanner/migrations.py)),
+([`migrations.py::apply_migrations`](../inboxaudit/migrations.py)),
 so end users never need to run `alembic` directly. Developers do, to
 generate new revisions:
 
 ```sh
-# 1. Edit inbox_scanner/models.py
+# 1. Edit inboxaudit/models.py
 # 2. Bring a tmpdir DB to current head:
 TMP=$(mktemp -d)
-INBOX_SCANNER_DATA_DIR=$TMP uv run alembic upgrade head
+INBOXAUDIT_DATA_DIR=$TMP uv run alembic upgrade head
 # 3. Generate the new revision against that tmpdir:
-INBOX_SCANNER_DATA_DIR=$TMP uv run alembic revision --autogenerate -m "<slug>"
+INBOXAUDIT_DATA_DIR=$TMP uv run alembic revision --autogenerate -m "<slug>"
 # 4. Review alembic/versions/<rev>_<slug>.py — autogenerate misses
 #    constraint-only changes and never picks up data backfills.
 ```
@@ -192,7 +192,7 @@ history of revisions.
 | `logs/` | grows over time; tens of MB after months of regular use |
 | HF caches | ~5 GB combined, one-time |
 
-`inbox-scanner status` prints `Total bytes on disk` for the blob
+`inboxaudit status` prints `Total bytes on disk` for the blob
 store, computed at request time.
 
 The plan flagged adding a `--max-total-bytes` safety cap to sync; it's

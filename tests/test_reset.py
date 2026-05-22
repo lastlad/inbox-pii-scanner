@@ -12,14 +12,14 @@ from pathlib import Path
 
 import pytest
 
-from inbox_scanner.cli import _execute_reset, _planned_reset_targets
-from inbox_scanner.config import load_settings
+from inboxaudit.cli import _execute_reset, _planned_reset_targets
+from inboxaudit.config import load_settings
 
 
 @pytest.fixture
 def populated_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Tmp data dir with all five canonical artifacts present."""
-    monkeypatch.setenv("INBOX_SCANNER__DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("INBOXAUDIT__DATA_DIR", str(tmp_path))
     settings = load_settings()
     # `load_settings` already calls `ensure_dirs`, so the skeleton exists.
     # Fill in some content so we can verify what survives a reset.
@@ -158,7 +158,7 @@ def test_wipe_all_removes_data_dir(populated_data_dir):
 
 def test_idempotent_on_empty_data_dir(tmp_path: Path, monkeypatch):
     """Running reset on an already-empty data dir must not raise."""
-    monkeypatch.setenv("INBOX_SCANNER__DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("INBOXAUDIT__DATA_DIR", str(tmp_path))
     settings = load_settings()
     # Clear out the seed dirs that load_settings created.
     import shutil

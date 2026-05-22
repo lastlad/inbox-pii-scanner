@@ -5,10 +5,10 @@ The merger is a pure function — no model load needed.
 
 from __future__ import annotations
 
-from inbox_scanner.detection.privacy_filter_detector import (
+from inboxaudit.detection.privacy_filter_detector import (
     _merge_adjacent_same_subtype,
 )
-from inbox_scanner.detection.types import Finding
+from inboxaudit.detection.types import Finding
 
 
 def _f(subtype: str, start: int, end: int, conf: float = 0.9) -> Finding:

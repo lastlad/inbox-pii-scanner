@@ -17,7 +17,7 @@ from io import BytesIO
 from docling.datamodel.base_models import DocumentStream
 from docling.document_converter import DocumentConverter
 
-from inbox_scanner.logging import get_logger
+from inboxaudit.logging import get_logger
 
 log = get_logger("extraction.docling")
 

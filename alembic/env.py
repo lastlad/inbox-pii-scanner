@@ -1,8 +1,8 @@
 """Alembic environment.
 
-Reads the SQLite path from ``inbox_scanner.config.load_settings()`` so
+Reads the SQLite path from ``inboxaudit.config.load_settings()`` so
 migrations always run against the user's data directory. Override the data
-directory with ``INBOX_SCANNER_DATA_DIR`` (handy for tests / CI).
+directory with ``INBOXAUDIT_DATA_DIR`` (handy for tests / CI).
 """
 
 from __future__ import annotations
@@ -14,14 +14,14 @@ from sqlalchemy import engine_from_config, pool
 
 from alembic import context
 
-from inbox_scanner.config import load_settings
-from inbox_scanner.models import Base
+from inboxaudit.config import load_settings
+from inboxaudit.models import Base
 
 # Note: alembic.ini ships with a default ``[loggers]`` / ``[handlers]`` block
 # but we deliberately don't ``fileConfig`` it. Logging is configured by
-# ``inbox_scanner.logging.configure_logging`` (structlog), and reapplying
+# ``inboxaudit.logging.configure_logging`` (structlog), and reapplying
 # alembic's stdlib config here would clobber the level filters we set in
-# ``inbox_scanner.migrations.apply_migrations``.
+# ``inboxaudit.migrations.apply_migrations``.
 
 config = context.config
 
@@ -29,7 +29,7 @@ target_metadata = Base.metadata
 
 
 def _resolve_url() -> str:
-    override = os.environ.get("INBOX_SCANNER_DATA_DIR")
+    override = os.environ.get("INBOXAUDIT_DATA_DIR")
     settings = load_settings(Path(override)) if override else load_settings()
     return f"sqlite:///{settings.db_path}"
 

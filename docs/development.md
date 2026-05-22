@@ -12,13 +12,13 @@ condensed version; this one is the human-facing prose.
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # 2. Clone and sync
-git clone https://github.com/lastlad/inbox-pii-scanner.git
-cd inbox-pii-scanner
+git clone https://github.com/lastlad/inboxaudit.git
+cd inboxaudit
 uv sync
 
 # 3. Verify
 uv run pytest -q              # 114 tests, ~4 s
-uv run inbox-scanner --help
+uv run inboxaudit --help
 ```
 
 Python is pinned to 3.11 via `.python-version`. `uv` handles
@@ -34,8 +34,8 @@ past it, something is off.
 
 | Path | What's there |
 |---|---|
-| `inbox_scanner/` | Source |
-| `inbox_scanner/frontend/index.html` | Single-file Alpine.js UI |
+| `inboxaudit/` | Source |
+| `inboxaudit/frontend/index.html` | Single-file Alpine.js UI |
 | `alembic/` | Database migrations |
 | `tests/` | Pytest suite |
 | `docs/` | These reference docs |
@@ -106,7 +106,7 @@ The pattern that tests use to avoid touching the dev corpus:
 ```python
 @pytest.fixture
 def fresh_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    monkeypatch.setenv("INBOX_SCANNER__DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("INBOXAUDIT__DATA_DIR", str(tmp_path))
     settings = load_settings()
     apply_migrations(settings)
     return tmp_path
@@ -126,7 +126,7 @@ needs to happen before any session-using code.
   docstring. Trivial helpers don't.
 - **Comments explain *why*, not *what*.** Match the existing tone:
   short, declarative, present-tense.
-- **Logging via `inbox_scanner.logging.get_logger(name)`.** Use
+- **Logging via `inboxaudit.logging.get_logger(name)`.** Use
   structured key/value pairs: `log.info("event_name", k=v, …)`. The
   console handler is lifted to WARNING during `sync` and `scan` long
   runs via `_quiet_console_logging()` in `cli.py`; INFO still hits
@@ -155,7 +155,7 @@ needs to happen before any session-using code.
 2. Add one row to `detection/categorizer.py::_REGISTRY`:
    `("detector", "<new>"): _Entry(category, tier)`. The category must
    already be in `RISK_WEIGHTS`; the tier must be one of `critical`,
-   `standard`, `all` (see [Profile](../inbox_scanner/detection/types.py)
+   `standard`, `all` (see [Profile](../inboxaudit/detection/types.py)
    for the meaning).
 3. `tests/test_categorizer.py::test_every_registry_entry_is_valid`
    enforces both invariants — failing test means a malformed row.
@@ -165,12 +165,12 @@ needs to happen before any session-using code.
 ### Changing a SQLAlchemy model
 
 ```sh
-# 1. Edit inbox_scanner/models.py
+# 1. Edit inboxaudit/models.py
 # 2. Bring a tmpdir DB to current head:
 TMP=$(mktemp -d)
-INBOX_SCANNER_DATA_DIR=$TMP uv run alembic upgrade head
+INBOXAUDIT_DATA_DIR=$TMP uv run alembic upgrade head
 # 3. Generate the migration:
-INBOX_SCANNER_DATA_DIR=$TMP uv run alembic revision --autogenerate -m "<slug>"
+INBOXAUDIT_DATA_DIR=$TMP uv run alembic revision --autogenerate -m "<slug>"
 # 4. Review alembic/versions/<rev>_<slug>.py — autogenerate misses
 #    constraint-only changes and never picks up data backfills.
 ```
@@ -196,9 +196,9 @@ the affected rows.
 
 ### Changing the frontend
 
-1. Edit `inbox_scanner/frontend/index.html`. Single file — no build
+1. Edit `inboxaudit/frontend/index.html`. Single file — no build
    step.
-2. `uv run inbox-scanner serve` and visit `http://127.0.0.1:8765`.
+2. `uv run inboxaudit serve` and visit `http://127.0.0.1:8765`.
 3. Open browser devtools and watch for errors. Alpine evaluates
    templates eagerly even under `x-show=false`, so always use
    optional chaining (`stats?.scan?.x ?? 0`) for fields that load
@@ -212,11 +212,11 @@ the affected rows.
 
 ```sh
 TMP=$(mktemp -d)
-INBOX_SCANNER__DATA_DIR=$TMP uv run inbox-scanner status   # bootstraps schema
+INBOXAUDIT__DATA_DIR=$TMP uv run inboxaudit status   # bootstraps schema
 # … drop credentials.json into $TMP, then …
-INBOX_SCANNER__DATA_DIR=$TMP uv run inbox-scanner auth
-INBOX_SCANNER__DATA_DIR=$TMP uv run inbox-scanner sync --limit 5
-INBOX_SCANNER__DATA_DIR=$TMP uv run inbox-scanner scan
+INBOXAUDIT__DATA_DIR=$TMP uv run inboxaudit auth
+INBOXAUDIT__DATA_DIR=$TMP uv run inboxaudit sync --limit 5
+INBOXAUDIT__DATA_DIR=$TMP uv run inboxaudit scan
 ```
 
 ## Commit conventions

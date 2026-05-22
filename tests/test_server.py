@@ -16,10 +16,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from inbox_scanner.config import load_settings
-from inbox_scanner.db import session_scope
-from inbox_scanner.migrations import apply_migrations
-from inbox_scanner.models import (
+from inboxaudit.config import load_settings
+from inboxaudit.db import session_scope
+from inboxaudit.migrations import apply_migrations
+from inboxaudit.models import (
     Attachment,
     Detection,
     Message,
@@ -27,13 +27,13 @@ from inbox_scanner.models import (
     Scan,
     Sync,
 )
-from inbox_scanner.server import create_app
+from inboxaudit.server import create_app
 
 
 @pytest.fixture
 def fresh_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Point ``load_settings`` at an empty tmpdir and run migrations there."""
-    monkeypatch.setenv("INBOX_SCANNER__DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("INBOXAUDIT__DATA_DIR", str(tmp_path))
     settings = load_settings()
     apply_migrations(settings)
     return tmp_path

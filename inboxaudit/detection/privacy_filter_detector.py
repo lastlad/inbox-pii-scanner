@@ -31,8 +31,8 @@ import threading
 import warnings
 from typing import Any
 
-from inbox_scanner.detection.types import Finding
-from inbox_scanner.logging import get_logger
+from inboxaudit.detection.types import Finding
+from inboxaudit.logging import get_logger
 
 log = get_logger("detection.privacy_filter")
 

@@ -1,8 +1,8 @@
-"""Tests for the attachment skip-filter in inbox_scanner.gmail.sync."""
+"""Tests for the attachment skip-filter in inboxaudit.gmail.sync."""
 
 from __future__ import annotations
 
-from inbox_scanner.gmail.sync import (
+from inboxaudit.gmail.sync import (
     ATT_PENDING,
     ATT_SKIPPED_FILTER,
     ATT_SKIPPED_TOO_LARGE,

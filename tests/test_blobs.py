@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-from inbox_scanner.blobs import blob_exists, read_blob, store_blob
+from inboxaudit.blobs import blob_exists, read_blob, store_blob
 
 
 def test_store_then_read_roundtrip(tmp_path: Path):

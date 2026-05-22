@@ -1,8 +1,8 @@
 # CLI reference
 
 Typer app at
-[`inbox_scanner/cli.py`](../inbox_scanner/cli.py). Entry point
-`inbox-scanner` (declared as a console script in `pyproject.toml`).
+[`inboxaudit/cli.py`](../inboxaudit/cli.py). Entry point
+`inboxaudit` (declared as a console script in `pyproject.toml`).
 
 All commands share a small bootstrap pass:
 
@@ -16,14 +16,14 @@ def _bootstrap(phase: str) -> Settings:
 
 Side effects:
 
-1. Resolve the data dir (`<repo>/.inbox-scanner-data/` in dev,
-   `~/.inbox-scanner/` for installed wheels, `INBOX_SCANNER__DATA_DIR`
+1. Resolve the data dir (`<repo>/.inboxaudit-data/` in dev,
+   `~/.inboxaudit/` for installed wheels, `INBOXAUDIT__DATA_DIR`
    wins over both).
 2. Create directory skeleton if missing.
 3. Configure structlog (console + file handler).
 4. Auto-run Alembic to bring the DB to head.
 
-`uv run inbox-scanner --help` lists every subcommand. Each one has its
+`uv run inboxaudit --help` lists every subcommand. Each one has its
 own `--help` with full flag documentation.
 
 ## Commands
@@ -35,7 +35,7 @@ Google's consent screen, persists the resulting token to
 `token.json`.
 
 ```sh
-uv run inbox-scanner auth
+uv run inboxaudit auth
 ```
 
 **Prerequisites:** `credentials.json` (Google OAuth client of type
@@ -54,7 +54,7 @@ Phase 1. Downloads message metadata + attachment bytes for every
 message matching `has:attachment`.
 
 ```sh
-uv run inbox-scanner sync [--limit N] [--since YYYY-MM-DD] [--resume / --no-resume]
+uv run inboxaudit sync [--limit N] [--since YYYY-MM-DD] [--resume / --no-resume]
 ```
 
 | Flag | Default | Notes |
@@ -77,7 +77,7 @@ See [Sync pipeline](sync-pipeline.md) for the full mechanics.
 Phase 2. Extracts text from cached attachments and runs detection.
 
 ```sh
-uv run inbox-scanner scan [--force-extract] [--only-extract] [--only-detect]
+uv run inboxaudit scan [--force-extract] [--only-extract] [--only-detect]
 ```
 
 | Flag | Default | Notes |
@@ -109,7 +109,7 @@ See [Scan pipeline](scan-pipeline.md).
 Start the FastAPI review server.
 
 ```sh
-uv run inbox-scanner serve [--host HOST] [--port PORT]
+uv run inboxaudit serve [--host HOST] [--port PORT]
 ```
 
 | Flag | Default | Notes |
@@ -126,7 +126,7 @@ Uvicorn's per-request access log is disabled. Ctrl-C exits cleanly.
 Print a dashboard of the current state.
 
 ```sh
-uv run inbox-scanner status
+uv run inboxaudit status
 ```
 
 Outputs (in order, with sections suppressed when not yet populated):
@@ -153,7 +153,7 @@ Wipe local state. Default behavior preserves the OAuth artefacts
 (token + credentials) so the user doesn't need to redo sign-in.
 
 ```sh
-uv run inbox-scanner reset [--keep-attachments] [--keep-extractions] [--all] [-y]
+uv run inboxaudit reset [--keep-attachments] [--keep-extractions] [--all] [-y]
 ```
 
 | Flag | Default | Effect |
@@ -167,7 +167,7 @@ uv run inbox-scanner reset [--keep-attachments] [--keep-extractions] [--all] [-y
 Prints the list of paths it intends to delete and prompts for
 confirmation; `n` aborts with exit 1.
 
-After a default reset the next `inbox-scanner sync` re-pulls
+After a default reset the next `inboxaudit sync` re-pulls
 everything from Gmail. After a reset with `--keep-attachments` the
 blobs survive, so the next sync is much cheaper (it re-creates DB rows
 but reuses the on-disk files via content-hash dedup).
@@ -178,7 +178,7 @@ but reuses the on-disk files via content-hash dedup).
 
 `apply_migrations(settings)` runs as part of every command's
 bootstrap. The implementation in
-[`inbox_scanner/migrations.py`](../inbox_scanner/migrations.py)
+[`inboxaudit/migrations.py`](../inboxaudit/migrations.py)
 short-circuits when the DB is already at head (it checks
 `MigrationContext.get_current_revision()`), so the overhead is
 microseconds.
@@ -217,28 +217,28 @@ stay readable without losing the per-event audit trail.
 
 ```sh
 # Full first-run flow
-uv run inbox-scanner auth
-uv run inbox-scanner sync --limit 5    # smoke-test the OAuth + sync chain
-uv run inbox-scanner sync              # full sync
-uv run inbox-scanner scan              # extract + detect, ~5 GB models on first run
-uv run inbox-scanner serve             # open http://127.0.0.1:8765
+uv run inboxaudit auth
+uv run inboxaudit sync --limit 5    # smoke-test the OAuth + sync chain
+uv run inboxaudit sync              # full sync
+uv run inboxaudit scan              # extract + detect, ~5 GB models on first run
+uv run inboxaudit serve             # open http://127.0.0.1:8765
 ```
 
 ```sh
 # Iterate on detector tuning without re-pulling from Gmail
 # (edit config.yaml or detection thresholds, then:)
-uv run inbox-scanner scan --only-detect
+uv run inboxaudit scan --only-detect
 ```
 
 ```sh
 # Try a different extractor configuration
-uv run inbox-scanner reset --keep-attachments -y
-uv run inbox-scanner scan
+uv run inboxaudit reset --keep-attachments -y
+uv run inboxaudit scan
 ```
 
 ```sh
 # Nuke and start completely over
-uv run inbox-scanner reset --all -y
+uv run inboxaudit reset --all -y
 # Now redo steps 3+ of the top-level README.
 ```
 

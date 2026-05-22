@@ -56,7 +56,7 @@ caches extraction results keyed on the hash too
 - **Per-attachment delete is unsafe.** If two messages share a blob
   and the user wants to scrub one, the blob has to stay because the
   other message still references it. v1 punts on this: the only
-  delete path is `inbox-scanner reset` (full or scoped), never
+  delete path is `inboxaudit reset` (full or scoped), never
   per-attachment.
 - The DB-on-disk picture is harder to inspect by hand. You can't
   `ls attachments/` and see filenames; you have to join through the
@@ -64,9 +64,9 @@ caches extraction results keyed on the hash too
 
 ## Encoded in
 
-- `inbox_scanner/blobs.py` — `store_blob` / `read_blob` / `blob_exists`.
-- `inbox_scanner/models.py::Attachment.content_hash` and `blob_path`.
-- `inbox_scanner/pipelines/scan_pipeline.py::_read_cached_extraction`
+- `inboxaudit/blobs.py` — `store_blob` / `read_blob` / `blob_exists`.
+- `inboxaudit/models.py::Attachment.content_hash` and `blob_path`.
+- `inboxaudit/pipelines/scan_pipeline.py::_read_cached_extraction`
   — extraction cache keyed on content hash.
 - `tests/test_blobs.py` — roundtrip, dedup, no-`.tmp`-leftover tests.
 

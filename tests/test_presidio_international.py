@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from inbox_scanner.detection.presidio_detector import detect
+from inboxaudit.detection.presidio_detector import detect
 
 
 # ---------- positive cases ----------
@@ -86,7 +86,7 @@ def test_international_recognizer_rejects_junk(subtype: str, text: str):
 def test_all_tier_a_entities_are_in_the_allowlist():
     """Smoke check: the eleven Tier A subtypes are wired into
     PRESIDIO_ENTITIES so ``analyze(entities=...)`` lets them through."""
-    from inbox_scanner.detection.presidio_detector import PRESIDIO_ENTITIES
+    from inboxaudit.detection.presidio_detector import PRESIDIO_ENTITIES
 
     expected = {s for s, _ in _POSITIVES}
     missing = expected - set(PRESIDIO_ENTITIES)
@@ -96,7 +96,7 @@ def test_all_tier_a_entities_are_in_the_allowlist():
 def test_all_tier_a_entities_have_categorizer_rows():
     """Each new subtype must have a (category, tier) row, or it would
     silently get dropped by the categorizer with no log."""
-    from inbox_scanner.detection.categorizer import _REGISTRY
+    from inboxaudit.detection.categorizer import _REGISTRY
 
     for subtype, _ in _POSITIVES:
         assert ("presidio", subtype) in _REGISTRY, (

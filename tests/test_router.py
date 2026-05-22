@@ -1,4 +1,4 @@
-"""Tests for inbox_scanner.extraction.router.
+"""Tests for inboxaudit.extraction.router.
 
 The router collapsed to a single Docling allowlist after Docling 2.x added
 native image and OCR support — these tests pin the supported mime list and
@@ -7,7 +7,7 @@ the canonicalisation behaviour.
 
 from __future__ import annotations
 
-from inbox_scanner.extraction.router import DOCLING_MIME_TYPES, route
+from inboxaudit.extraction.router import DOCLING_MIME_TYPES, route
 
 
 # ---------- documents ----------

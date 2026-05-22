@@ -2,14 +2,14 @@
 
 Phase 1: download Gmail message metadata + attachment bytes into the
 local store. Entry point:
-[`inbox_scanner/gmail/sync.py::run_sync`](../inbox_scanner/gmail/sync.py).
+[`inboxaudit/gmail/sync.py::run_sync`](../inboxaudit/gmail/sync.py).
 
 ## Goals
 
 - **Idempotent on re-run.** Resync against the same DB never duplicates
   rows, never re-pulls work that's already done.
 - **Resumable.** Ctrl-C mid-flight leaves the DB in a state where the
-  next `inbox-scanner sync` continues from where it stopped.
+  next `inboxaudit sync` continues from where it stopped.
 - **Bounded resource use.** Rate-limited so we don't trip Gmail's
   quota; disk usage capped per-attachment.
 
@@ -63,7 +63,7 @@ sequenceDiagram
 ### 1. List candidate messages
 
 Calls `users.messages.list(userId='me', q=<query>)` where `<query>` is
-built by [`_build_query`](../inbox_scanner/gmail/sync.py):
+built by [`_build_query`](../inboxaudit/gmail/sync.py):
 
 | `--mailbox` | Query string |
 |---|---|
@@ -148,7 +148,7 @@ inboxes.
 #### 3c. Persist message + attachment stubs (one transaction)
 
 `_persist_message_stub` runs **inside** `asyncio.to_thread` and uses
-[`session_scope`](../inbox_scanner/db.py) for transactional
+[`session_scope`](../inboxaudit/db.py) for transactional
 boundaries. It:
 
 1. Upserts the `messages` row.
@@ -202,8 +202,8 @@ the message row's `sync_status` flips to `synced`. `synced_at` is set.
 ## Concurrency knobs
 
 Defined in
-[`gmail/sync.py`](../inbox_scanner/gmail/sync.py) and
-[`gmail/rate_limiter.py`](../inbox_scanner/gmail/rate_limiter.py).
+[`gmail/sync.py`](../inboxaudit/gmail/sync.py) and
+[`gmail/rate_limiter.py`](../inboxaudit/gmail/rate_limiter.py).
 
 | Knob | Default | Where | Why |
 |---|---|---|---|
@@ -251,8 +251,8 @@ roughly an hour. Bandwidth dominates: large attachments
 
 - The sync pipeline never reads the extracted markdown or runs
   detectors. Once messages and attachments are marked synced, every
-  re-run of `inbox-scanner scan` operates entirely on local files.
-- It also doesn't watch for new mail. Each `inbox-scanner sync` is a
+  re-run of `inboxaudit scan` operates entirely on local files.
+- It also doesn't watch for new mail. Each `inboxaudit sync` is a
   one-shot historical sweep; a daemon mode is in the v2 backlog.
 
 ## See also

@@ -12,7 +12,7 @@ import time
 
 import pytest
 
-from inbox_scanner.gmail.rate_limiter import TokenBucket
+from inboxaudit.gmail.rate_limiter import TokenBucket
 
 
 @pytest.mark.asyncio

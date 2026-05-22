@@ -21,8 +21,8 @@ A self-hosted, local-first tool that scans a Gmail inbox for emails containing s
 
 The pipeline is split into **two independent phases** that can be run separately:
 
-1. **Sync phase** (`inbox-scanner sync`): talks to Gmail, downloads message metadata and all attachment bytes to local disk. Network-bound, rate-limited, slow on first run, idempotent on re-run.
-2. **Scan phase** (`inbox-scanner scan`): operates entirely on local files. Runs extraction (Docling/Qwen-VL) and detection (Presidio/Privacy Filter/regex). Can be re-run any number of times — to try different thresholds, new detectors, or after fixing a bug — without touching Gmail.
+1. **Sync phase** (`inboxaudit sync`): talks to Gmail, downloads message metadata and all attachment bytes to local disk. Network-bound, rate-limited, slow on first run, idempotent on re-run.
+2. **Scan phase** (`inboxaudit scan`): operates entirely on local files. Runs extraction (Docling/Qwen-VL) and detection (Presidio/Privacy Filter/regex). Can be re-run any number of times — to try different thresholds, new detectors, or after fixing a bug — without touching Gmail.
 
 This means the user pays the Gmail API cost exactly once, then iterates locally as much as they want. It also makes development much faster, since you can sync a real inbox once and then iterate on extractors and detectors against cached data.
 
@@ -107,14 +107,14 @@ This means the user pays the Gmail API cost exactly once, then iterates locally 
 | CLI | Typer | Simple, type-hinted |
 | Backend | FastAPI + Uvicorn | Localhost only |
 | Frontend | Plain HTML + Alpine.js + Tailwind (CDN) | No build step. Single `index.html` served by FastAPI. |
-| DB | SQLite (via SQLAlchemy 2.0 or sqlite3 stdlib) | Single file at `~/.inbox-scanner/state.db` |
+| DB | SQLite (via SQLAlchemy 2.0 or sqlite3 stdlib) | Single file at `~/.inboxaudit/state.db` |
 | Gmail | `google-api-python-client` + `google-auth-oauthlib` | Read-only scope |
 | Extraction (PDF, Office, image, OCR) | Docling 2.x | Single backend; OCR auto-routes via OcrAutoOptions (EasyOCR / Apple Vision / RapidOCR). Needs `opencv-python-headless` for the EasyOCR path. |
 | Pattern PII | Microsoft Presidio (`presidio-analyzer`) | |
 | Contextual PII | OpenAI Privacy Filter via `transformers` | |
 | Async/concurrency | `asyncio` + `httpx` for HTTP, thread pool for sync libs | |
 | Logging | `structlog` | JSON logs to file, pretty to console |
-| Config | `pydantic-settings` | YAML at `~/.inbox-scanner/config.yaml` |
+| Config | `pydantic-settings` | YAML at `~/.inboxaudit/config.yaml` |
 | Package manager | `uv` | |
 
 ---
@@ -122,7 +122,7 @@ This means the user pays the Gmail API cost exactly once, then iterates locally 
 ## Data layout
 
 ```
-~/.inbox-scanner/
+~/.inboxaudit/
 ├── config.yaml              # User settings
 ├── credentials.json         # Google OAuth client (user-provided)
 ├── token.json               # OAuth refresh token after auth
@@ -251,32 +251,32 @@ CREATE INDEX idx_detections_attachment ON detections(attachment_id);
 CREATE INDEX idx_verdicts_flagged ON message_verdicts(is_flagged, risk_score DESC);
 ```
 
-**Re-scan behavior:** when `inbox-scanner scan` runs a second time, it creates a new `scans` row, deletes prior `detections` and `message_verdicts` rows, and re-runs extraction + detection against the cached blobs. Extraction results can be cached (skip if `extraction_status='extracted'` and config hasn't changed) or forced (`scan --force-extract`).
+**Re-scan behavior:** when `inboxaudit scan` runs a second time, it creates a new `scans` row, deletes prior `detections` and `message_verdicts` rows, and re-runs extraction + detection against the cached blobs. Extraction results can be cached (skip if `extraction_status='extracted'` and config hasn't changed) or forced (`scan --force-extract`).
 
 ---
 
 ## CLI commands
 
 ```
-inbox-scanner auth                        # Walk through OAuth, save token.json
+inboxaudit auth                        # Walk through OAuth, save token.json
 
-inbox-scanner sync [--limit N] [--since YYYY-MM-DD] [--resume]
+inboxaudit sync [--limit N] [--since YYYY-MM-DD] [--resume]
     # Phase 1: download messages and attachment bytes from Gmail.
     # Idempotent: skips messages already marked 'synced'.
     # --resume continues an interrupted sync (default behavior on re-run).
 
-inbox-scanner scan [--force-extract] [--only-extract] [--only-detect]
+inboxaudit scan [--force-extract] [--only-extract] [--only-detect]
     # Phase 2: run extraction + detection on locally cached attachments.
     # No Gmail access. Can be run any number of times.
     # --force-extract re-runs extraction even on attachments already extracted.
     # --only-extract skips detection (useful when iterating on extractors).
     # --only-detect skips extraction (uses cached extracted text).
 
-inbox-scanner serve [--port 8765]         # Start FastAPI + frontend
+inboxaudit serve [--port 8765]         # Start FastAPI + frontend
 
-inbox-scanner status                      # Print sync state + last scan summary
+inboxaudit status                      # Print sync state + last scan summary
 
-inbox-scanner reset [options]
+inboxaudit reset [options]
     # --keep-token        keep OAuth token
     # --keep-attachments  keep downloaded blobs (only wipe scan results)
     # --keep-extractions  keep extracted text cache
@@ -288,12 +288,12 @@ The `sync` and `scan` commands print live progress to stdout (rich progress bar)
 **Typical user workflow:**
 
 ```bash
-inbox-scanner auth                        # one-time OAuth setup
-inbox-scanner sync                        # one-time, may take hours for large inbox
-inbox-scanner scan                        # run scan; iterate freely
-inbox-scanner serve                       # review results in browser
+inboxaudit auth                        # one-time OAuth setup
+inboxaudit sync                        # one-time, may take hours for large inbox
+inboxaudit scan                        # run scan; iterate freely
+inboxaudit serve                       # review results in browser
 # ... user reviews, decides to tighten thresholds, edits config.yaml ...
-inbox-scanner scan                        # re-run with new config, no Gmail access needed
+inboxaudit scan                        # re-run with new config, no Gmail access needed
 ```
 
 ---
@@ -301,7 +301,7 @@ inbox-scanner scan                        # re-run with new config, no Gmail acc
 ## Module structure
 
 ```
-inbox_scanner/
+inboxaudit/
 ├── __init__.py
 ├── cli.py                    # Typer commands
 ├── config.py                 # Pydantic settings, YAML loader
@@ -345,11 +345,11 @@ inbox_scanner/
 
 ## Component specs
 
-### 1. Gmail integration (`inbox_scanner/gmail/`)
+### 1. Gmail integration (`inboxaudit/gmail/`)
 
-This module handles **only Phase 1 (sync)**. Once sync completes, Gmail is never touched again until the user explicitly runs `inbox-scanner sync` to fetch new messages.
+This module handles **only Phase 1 (sync)**. Once sync completes, Gmail is never touched again until the user explicitly runs `inboxaudit sync` to fetch new messages.
 
-**OAuth setup:** the user creates their own Google Cloud project, enables Gmail API, downloads OAuth client credentials (`credentials.json`), drops it in `~/.inbox-scanner/`. The README must walk through this. We use the **`gmail.readonly` scope only**. No restricted-scope verification needed because each user uses their own OAuth client.
+**OAuth setup:** the user creates their own Google Cloud project, enables Gmail API, downloads OAuth client credentials (`credentials.json`), drops it in `~/.inboxaudit/`. The README must walk through this. We use the **`gmail.readonly` scope only**. No restricted-scope verification needed because each user uses their own OAuth client.
 
 **Rate limiting:** Gmail API quota is ~250 quota units/sec per user. A `messages.get` with `format=full` costs 5 units, `attachments.get` costs 5 units. To stay safely under, throttle to **20 requests/second** using a token-bucket limiter. Use exponential backoff with jitter on 429/503.
 
@@ -376,7 +376,7 @@ This module handles **only Phase 1 (sync)**. Once sync completes, Gmail is never
 
 Use Gmail message ID as primary key; never re-fetch already-synced messages.
 
-### 2. Blob storage (`inbox_scanner/blobs.py`)
+### 2. Blob storage (`inboxaudit/blobs.py`)
 
 Content-addressed storage for downloaded attachments. Two emails carrying the same file (which is common — the same insurance card, the same form template) share one blob.
 
@@ -397,7 +397,7 @@ def read_blob(rel_path: Path) -> bytes:
 
 Multiple `attachments` rows can point to the same `content_hash` / `blob_path`. When extracting, the scanner can cache extraction results keyed on `content_hash` to avoid re-extracting identical files.
 
-### 3. Attachment router (`inbox_scanner/extraction/router.py`)
+### 3. Attachment router (`inboxaudit/extraction/router.py`)
 
 Mime-only allowlist — Docling 2.x sniffs born-digital vs. scanned PDFs internally via `do_ocr=True` so we don't pre-classify:
 
@@ -581,11 +581,11 @@ The UI must be functional, not pretty. Tailwind's defaults are fine.
 
 ---
 
-## Configuration (`~/.inbox-scanner/config.yaml`)
+## Configuration (`~/.inboxaudit/config.yaml`)
 
 ```yaml
 gmail:
-  credentials_path: ~/.inbox-scanner/credentials.json
+  credentials_path: ~/.inboxaudit/credentials.json
   rate_limit_rps: 20
   max_total_bytes: 107374182400        # 100 GB safety cap; abort sync if exceeded
 
@@ -642,13 +642,13 @@ Don't write tests for Docling, Privacy Filter, or Qwen2.5-VL accuracy — those 
 Ship in this order so each step produces something testable:
 
 1. **Project scaffolding** ✅ — `pyproject.toml` with `uv`, module layout, empty CLI commands, config loader, DB schema + Alembic migrations, structured logging setup, blob storage helpers.
-2. **Gmail auth + sync (no attachments)** ✅ — `inbox-scanner auth` works, `inbox-scanner sync --limit 5` lists 5 messages and writes stubs to DB. Just metadata, no attachment bytes yet.
-3. **Sync with attachment download** ✅ — extend sync to download attachment bytes to content-addressed blob storage. `inbox-scanner sync --limit 20` produces a fully populated local cache. 4-worker async with 20 RPS bucket; resume tested.
-4. **Docling extractor + router (offline)** ✅ — `inbox-scanner scan --only-extract` works against cached blobs. Single-backend (Docling 2.x) handles PDFs, Office docs, and supported images via on-by-default OCR. Original "step 5: Qwen2.5-VL extractor" was collapsed into this — see plan revision note at the top.
-5. **Detection layer** ✅ — Presidio + Privacy Filter + custom regex, categorizer, verdict computation. `inbox-scanner scan --only-detect` works on cached extracted text.
-6. **Full scan pipeline** ✅ — `inbox-scanner scan` runs extract + detect end to end. Idempotence verified on the dev corpus: the meaningful payload (attachment-id + category + subtype + detector + span boundaries + verdict tuple set) is bit-for-bit identical across two consecutive runs.
-7. **FastAPI server + endpoints** ✅ — `inbox-scanner serve` brings up the read-only API at `127.0.0.1:8765`. Endpoints: `/api/stats`, `/api/flagged?cursor=&limit=&category=&sort=`, `/api/email/{message_id}?snippet_window=N`. `gmail_url` constructed for every flagged item. Bind warning fires loudly if `--host` is overridden.
-8. **Frontend** ✅ — single-file `inbox_scanner/frontend/index.html` (Alpine.js + Tailwind via CDN). Dashboard with sync/scan stats and by-category breakdown; review pane with sidebar filter (category + sort), pager, message header, attachments list, and findings grouped by category with snippet highlights using the API's `snippet_relative_start/end`. Keyboard shortcuts: J/K to navigate, O to open in Gmail, Esc to dashboard. Browser-tested via Playwright.
+2. **Gmail auth + sync (no attachments)** ✅ — `inboxaudit auth` works, `inboxaudit sync --limit 5` lists 5 messages and writes stubs to DB. Just metadata, no attachment bytes yet.
+3. **Sync with attachment download** ✅ — extend sync to download attachment bytes to content-addressed blob storage. `inboxaudit sync --limit 20` produces a fully populated local cache. 4-worker async with 20 RPS bucket; resume tested.
+4. **Docling extractor + router (offline)** ✅ — `inboxaudit scan --only-extract` works against cached blobs. Single-backend (Docling 2.x) handles PDFs, Office docs, and supported images via on-by-default OCR. Original "step 5: Qwen2.5-VL extractor" was collapsed into this — see plan revision note at the top.
+5. **Detection layer** ✅ — Presidio + Privacy Filter + custom regex, categorizer, verdict computation. `inboxaudit scan --only-detect` works on cached extracted text.
+6. **Full scan pipeline** ✅ — `inboxaudit scan` runs extract + detect end to end. Idempotence verified on the dev corpus: the meaningful payload (attachment-id + category + subtype + detector + span boundaries + verdict tuple set) is bit-for-bit identical across two consecutive runs.
+7. **FastAPI server + endpoints** ✅ — `inboxaudit serve` brings up the read-only API at `127.0.0.1:8765`. Endpoints: `/api/stats`, `/api/flagged?cursor=&limit=&category=&sort=`, `/api/email/{message_id}?snippet_window=N`. `gmail_url` constructed for every flagged item. Bind warning fires loudly if `--host` is overridden.
+8. **Frontend** ✅ — single-file `inboxaudit/frontend/index.html` (Alpine.js + Tailwind via CDN). Dashboard with sync/scan stats and by-category breakdown; review pane with sidebar filter (category + sort), pager, message header, attachments list, and findings grouped by category with snippet highlights using the API's `snippet_relative_start/end`. Keyboard shortcuts: J/K to navigate, O to open in Gmail, Esc to dashboard. Browser-tested via Playwright.
 9. **README** ✅ — non-technical-friendly setup (uv install, clone, OAuth client creation in Google Cloud Console click-by-click, auth, sync/scan/serve), data-dir layout + FileVault note, v1 limits.
 10. **Polish** ✅ — rich progress bars during sync + scan (steps 3 & 4), `status` with sync/extraction/detection tables (step 5), Ctrl-C-resumable sync + idempotent re-runs (step 6), and `reset` with composable `--keep-attachments` / `--keep-extractions` / `--all` flags + confirmation prompt (this step).
 

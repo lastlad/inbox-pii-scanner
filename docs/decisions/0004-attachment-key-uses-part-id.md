@@ -66,11 +66,11 @@ the id is always seconds old when the download starts.
 
 ## Encoded in
 
-- `inbox_scanner/models.py::Attachment` — `id`, `part_id`,
+- `inboxaudit/models.py::Attachment` — `id`, `part_id`,
   `gmail_attachment_id` columns.
-- `inbox_scanner/gmail/client.py::make_composite_attachment_id` —
+- `inboxaudit/gmail/client.py::make_composite_attachment_id` —
   the only place that builds the key.
-- `inbox_scanner/gmail/sync.py::_process_message_metadata` —
+- `inboxaudit/gmail/sync.py::_process_message_metadata` —
   refreshes `gmail_attachment_id` on every metadata fetch; never
   changes the composite `id`.
 - CLAUDE.md "load-bearing constraints": **Never** put

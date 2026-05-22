@@ -88,7 +88,7 @@ clear the threshold.
   negative-test set, which throws shape-similar bad-checksum strings
   at each recognizer and verifies they're rejected.
 - One source of truth: the `_REGISTRY` in
-  `inbox_scanner/detection/categorizer.py` gained eleven rows; no
+  `inboxaudit/detection/categorizer.py` gained eleven rows; no
   other code needed to change for the categorizer or profile filter
   to work.
 
@@ -104,9 +104,9 @@ clear the threshold.
 
 ## Encoded in
 
-- `inbox_scanner/detection/presidio_detector.py` — `PRESIDIO_ENTITIES`
+- `inboxaudit/detection/presidio_detector.py` — `PRESIDIO_ENTITIES`
   allowlist + registration logic in `_get_engine()`.
-- `inbox_scanner/detection/categorizer.py` — eleven `_REGISTRY` rows.
+- `inboxaudit/detection/categorizer.py` — eleven `_REGISTRY` rows.
 - `tests/test_presidio_international.py` — positive and negative
   integration tests + a wiring check.
 
