@@ -19,7 +19,7 @@ both into the repo.
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│ Inbox PII Scanner   [Dashboard] [Review]      N flagged of M scanned │  <-- top bar
+│ InboxAudit   [Dashboard] [Review]      N flagged of M scanned │  <-- top bar
 ├──────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │   <view: dashboard>   OR   <view: review>                        │

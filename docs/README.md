@@ -1,6 +1,6 @@
 # Technical documentation
 
-Reference docs for the as-built v1 of Inbox PII Scanner. The user-facing
+Reference docs for the as-built v1 of InboxAudit. The user-facing
 setup walkthrough is the top-level [`../README.md`](../README.md); this
 folder is for developers and reviewers who need to understand how the
 system actually works.

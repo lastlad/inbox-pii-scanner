@@ -21,10 +21,8 @@ build/
 
 # Repo-local runtime data dir — contains real attachment bytes, extracted
 # text, and PII spans. Auto-created by load_settings() when running from a
-# source checkout (see inboxaudit/config.py::default_data_dir). The
-# pre-rename name is kept here defensively until users migrate.
+# source checkout (see inboxaudit/config.py::default_data_dir).
 .inboxaudit-data/
-.inbox-scanner-data/
 
 # Browser-driven smoke-test artifacts. Screenshots can contain rendered
 # PII from the dev corpus (the UI literally paints highlighted spans of

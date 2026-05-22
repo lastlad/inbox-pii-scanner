@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Inbox PII Scanner</title>
+  <title>InboxAudit</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23dc2626' d='M12 1l-9 4v6c0 5.6 3.8 10.7 9 12 5.2-1.3 9-6.4 9-12V5l-9-4zm-1 6h2v6h-2V7zm0 8h2v2h-2v-2z'/%3E%3C/svg%3E" />
   <!--
     Single-file UI per the implementation plan. Tailwind via CDN and
@@ -38,7 +38,7 @@
   <!-- ───────────────────────── Top bar ───────────────────────── -->
   <header class="border-b bg-white">
     <div class="max-w-7xl mx-auto px-4 py-3 flex items-center gap-4">
-      <h1 class="text-base font-semibold tracking-tight">Inbox PII Scanner</h1>
+      <h1 class="text-base font-semibold tracking-tight">InboxAudit</h1>
       <nav class="text-sm space-x-1">
         <button class="px-3 py-1 rounded hover:bg-gray-100"
                 :class="view==='dashboard' ? 'bg-gray-200 font-medium' : ''"

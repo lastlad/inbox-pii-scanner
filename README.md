@@ -1,4 +1,4 @@
-# Inbox PII Scanner
+# InboxAudit
 
 A local tool that scans your Gmail inbox for emails with sensitive
 attachments — IDs, financial documents, tax forms, credentials — and

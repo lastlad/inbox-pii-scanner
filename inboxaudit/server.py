@@ -194,7 +194,7 @@ def create_app(
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
     app = FastAPI(
-        title="Inbox PII Scanner",
+        title="InboxAudit",
         description=(
             "Read-only local API over the cached scan results. "
             "Bind to 127.0.0.1 only — there is no auth."
@@ -444,7 +444,7 @@ _PLACEHOLDER_HTML = """<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Inbox PII Scanner</title>
+  <title>InboxAudit</title>
   <style>
     body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
            max-width: 720px; margin: 4rem auto; padding: 0 1rem;
@@ -459,7 +459,7 @@ _PLACEHOLDER_HTML = """<!doctype html>
   </style>
 </head>
 <body>
-  <h1>Inbox PII Scanner — local server</h1>
+  <h1>InboxAudit — local server</h1>
   <p>The review UI lands in build-step 8. Until then, the JSON API is live:</p>
   <div class="grid">
     <a href="/api/stats">/api/stats</a>
